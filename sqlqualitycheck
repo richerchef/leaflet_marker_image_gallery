@@ -1,0 +1,99 @@
+from sqlalchemy import create_engine, text
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import calendar
+
+def calculate_data_quality_heatmap(
+        engine_url,
+            table_name,
+                expected_interval_seconds=300,
+                    start_date='20250101',
+                        end_date='20251231'
+):
+    # Connect to SQL
+        engine = create_engine(engine_url)
+
+            # SQL: Calculate daily coverage %
+                query = f"""
+                    WITH filtered_data AS (
+                                SELECT dateid, timeid
+                                        FROM {table_name}
+                                                WHERE dateid BETWEEN :start_date AND :end_date
+                    ),
+                        diffs AS (
+                                    SELECT
+                                                dateid,
+                                                            timeid,
+                                                                        LAG(timeid) OVER (PARTITION BY dateid ORDER BY timeid) AS prev_timeid
+                                                                                FROM filtered_data
+                        ),
+                            gaps AS (
+                                        SELECT
+                                                    dateid,
+                                                                timeid,
+                                                                            prev_timeid,
+                                                                                        timeid - prev_timeid AS time_diff
+                                                                                                FROM diffs
+                                                                                                        WHERE prev_timeid IS NOT NULL
+                            ),
+                                agg AS (
+                                            SELECT
+                                                        dateid,
+                                                                    COUNT(*) + 1 AS sample_count,
+                                                                                SUM(CASE WHEN time_diff > :expected_interval THEN time_diff - :expected_interval ELSE 0 END) AS lost_seconds
+                                                                                        FROM gaps
+                                                                                                GROUP BY dateid
+                                )
+                                    SELECT
+                                            dateid,
+                                                    sample_count,
+                                                            ROUND(100.0 * (86400.0 - COALESCE(lost_seconds, 0)) / 86400.0, 2) AS coverage_percent
+                                                                FROM agg
+                                                                    ORDER BY dateid;
+                                                                        """
+
+                                                                            # Run query
+                                                                                with engine.connect() as conn:
+                                                                                        df = pd.read_sql_query(
+                                                                                                        text(query),
+                                                                                                                    conn,
+                                                                                                                                params={
+                                                                                                                                                    'expected_interval': expected_interval_seconds,
+                                                                                                                                                                    'start_date': int(start_date),
+                                                                                                                                                                                    'end_date': int(end_date)
+                                                                                                                                }
+                                                                                        )
+
+                                                                                            # Convert dateid to datetime
+                                                                                                df['date'] = pd.to_datetime(df['dateid'].astype(str), format='%Y%m%d')
+                                                                                                    df.set_index('date', inplace=True)
+
+                                                                                                        # Extract month and day
+                                                                                                            df['day'] = df.index.day
+                                                                                                                df['month'] = df.index.month_name()
+                                                                                                                    df['month_num'] = df.index.month
+
+                                                                                                                        # Pivot table for heatmap
+                                                                                                                            pivot = df.pivot_table(index='month', columns='day', values='coverage_percent', aggfunc='mean')
+
+                                                                                                                                # Sort months in calendar order
+                                                                                                                                    pivot = pivot.reindex(calendar.month_name[1:])
+
+                                                                                                                                        # Plot
+                                                                                                                                            plt.figure(figsize=(16, 8))
+                                                                                                                                                sns.heatmap(pivot, cmap="YlGnBu", annot=True, fmt=".0f", cbar_kws={'label': 'Coverage %'})
+                                                                                                                                                    plt.title('Daily Data Quality Coverage Heatmap')
+                                                                                                                                                        plt.xlabel('Day of Month')
+                                                                                                                                                            plt.ylabel('Month')
+                                                                                                                                                                plt.tight_layout()
+                                                                                                                                                                    plt.show()
+
+                                                                                                                                                                        return df[['sample_count', 'coverage_percent']]
+                                                                                                                                }
+                                                                                        )
+                                )
+                            )
+                        )
+                    )
+)
