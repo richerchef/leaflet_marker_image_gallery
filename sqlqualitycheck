@@ -1,28 +1,42 @@
-from IPython.display import display, HTML
 import json
 
-# Convert your DataFrame to Cal-Heatmap format
+# Prepare data
 df_clean = df.copy()
 df_clean = df_clean[~df_clean['coverage'].isna()]
 df_clean = df_clean.sort_index()
+
 heatmap_data = {
     int(ts.timestamp()): round(val * 100, 2)
     for ts, val in df_clean['coverage'].items()
 }
 
-# Generate HTML/JS inline safely
+# HTML template with inline error logging
 html_template = f"""
-<div id="cal-heatmap" style="height: 200px;"></div>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Calendar Heatmap</title>
+  <link rel="stylesheet" href="https://unpkg.com/cal-heatmap@4.0.0/cal-heatmap.css" />
+  <style>
+    body {{ font-family: sans-serif; padding: 2em; }}
+    #cal-heatmap {{ height: 200px; }}
+    #error-log {{ margin-top: 2em; color: red; white-space: pre-wrap; }}
+  </style>
+</head>
+<body>
+  <h2>Data Coverage Calendar Heatmap</h2>
+  <div id="cal-heatmap"></div>
 
-<link rel="stylesheet" href="https://unpkg.com/cal-heatmap@4.0.0/cal-heatmap.css" />
-<script src="https://unpkg.com/cal-heatmap@4.0.0/dist/cal-heatmap.min.js"></script>
+  <script src="https://unpkg.com/cal-heatmap@4.0.0/dist/cal-heatmap.min.js"></script>
 
-<script type="text/javascript">
-(function() {{
-  const waitForLibrary = () => {{
-    if (typeof CalHeatmap === 'undefined') {{
-      setTimeout(waitForLibrary, 100);
-    }} else {{
+  <script>
+    const logError = (err) => {{
+      const el = document.getElementById("error-log");
+      el.innerText = "🚨 Error: " + err.message + "\\n" + (err.stack || "");
+    }};
+
+    try {{
       const cal = new CalHeatmap();
       cal.paint({{
         range: 2,
@@ -41,12 +55,19 @@ html_template = f"""
         }},
         tooltip: true,
         domainDynamicDimension: false
-      }});
+      }}).catch(logError);
+    }} catch (err) {{
+      logError(err);
     }}
-  }};
-  waitForLibrary();
-}})();
-</script>
+  </script>
+
+  <pre id="error-log"></pre>
+</body>
+</html>
 """
 
-display(HTML(html_template))
+# Write to file
+with open("calendar_heatmap.html", "w", encoding="utf-8") as f:
+    f.write(html_template)
+
+print("✅ HTML with inline error logging written: calendar_heatmap.html")
