@@ -29,3 +29,78 @@ summary AS (
 )
 SELECT * FROM summary
 ORDER BY dateid;
+
+
+# Assessing Data Coverage via Time Interval Gaps in Digital Time Series
+
+## 📌 Hypothesis
+
+If data from a digital sensor channel is expected to be sampled at **regular intervals** (e.g. every 300 seconds), we can assess the **data coverage** by detecting the number of **missing expected samples** over each day (`dateid`). By computing differences between adjacent timestamps, we can estimate how many intervals were skipped and thus determine coverage accuracy.
+
+---
+
+## 🧪 Method
+
+1. Group data by `dateid`.
+2. For each group, order `timeid` values (recorded in seconds) chronologically.
+3. Use the SQL `LAG()` function to compare each `timeid` with its previous one.
+4. If the difference between two successive `timeid`s exceeds the expected interval (`300` seconds), estimate the number of missing samples using:
+
+\[
+   \text{missing intervals} = \left\lfloor \frac{\text{timeid} - \text{prev\_timeid}}{300} \right\rfloor - 1
+\]
+
+5. Sum the missing intervals for each `dateid`.
+6. Assume a full day has `288` expected samples (i.e., 86400 seconds / 300s).
+7. Compute estimated coverage using:
+
+\[
+   \text{coverage} = \left( \frac{288 - \text{missing}}{288} \right) \times 100
+\]
+
+---
+
+## 💻 SQL Implementation (PostgreSQL Example)
+
+```sql
+-- Step 1: Get previous timeid using LAG window function
+WITH with_lags AS (
+  SELECT 
+    dateid,
+    timeid,
+    LAG(timeid) OVER (
+      PARTITION BY dateid 
+      ORDER BY timeid
+    ) AS prev_timeid
+  FROM your_table  -- replace with your actual table name
+),
+
+-- Step 2: Calculate how many expected samples are missing between timestamps
+missing_intervals AS (
+  SELECT 
+    dateid,
+    CASE 
+      WHEN prev_timeid IS NULL THEN 0
+      WHEN timeid - prev_timeid > 300 
+        THEN FLOOR((timeid - prev_timeid) / 300) - 1
+      ELSE 0
+    END AS missing_count
+  FROM with_lags
+),
+
+-- Step 3: Aggregate missing and present samples and compute coverage
+summary AS (
+  SELECT 
+    dateid,
+    SUM(missing_count) AS total_missing_intervals,
+    COUNT(*) AS actual_samples,
+    288 AS expected_samples,  -- 86400 / 300
+    288 - SUM(missing_count) AS estimated_present_intervals,
+    ROUND(100.0 * (288 - SUM(missing_count)) / 288, 2) AS coverage_percent
+  FROM missing_intervals
+  GROUP BY dateid
+)
+
+-- Final output
+SELECT * FROM summary
+ORDER BY dateid;
