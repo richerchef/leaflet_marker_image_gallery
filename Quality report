@@ -106,7 +106,7 @@
 </div>
 
 <script>
-// -- MOCK DATA (replace with real data format: { table, date: 'YYYY-MM-DD', coverage: 0–1 }) --
+// ----------------- Mock Data (Replace with your own if needed) -----------------
 const tables = Array.from({ length: 20 }, (_, i) => `table_${i + 1}`);
 let mockData = Array.from({ length: 1000 }, () => {
   const table = tables[Math.floor(Math.random() * tables.length)];
@@ -118,16 +118,24 @@ let mockData = Array.from({ length: 1000 }, () => {
   };
 });
 
-// -- HELPERS --
+// ----------------- Helpers -----------------
 function getColor(p) {
   const r = Math.floor(255 - (p * 2.55));
   const g = Math.floor(p * 2.55);
   return `rgb(${r},${g},50)`;
 }
 
+// ✅ Correct ISO Week grouping
 function aggDate(d, group) {
   const date = new Date(d);
-  if (group === 'Week') return `${date.getFullYear()}-W${Math.ceil(date.getDate() / 7)}`;
+  if (group === 'Week') {
+    const temp = new Date(date);
+    temp.setHours(0, 0, 0, 0);
+    temp.setDate(temp.getDate() + 3 - ((temp.getDay() + 6) % 7));
+    const week1 = new Date(temp.getFullYear(), 0, 4);
+    const weekNo = 1 + Math.round(((temp - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+    return `${temp.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+  }
   if (group === 'Month') return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   if (group === 'Year') return `${date.getFullYear()}`;
   return d;
@@ -135,7 +143,7 @@ function aggDate(d, group) {
 
 const color = d3.scaleOrdinal(tables, d3.schemeSet3);
 
-// -- FILTERS FROM URL --
+// ----------------- URL Filter Sync -----------------
 function getParams() {
   const params = new URLSearchParams(window.location.search);
   return {
@@ -169,7 +177,7 @@ function updateURL() {
   history.replaceState(null, "", `?${params.toString()}`);
 }
 
-// -- DATA PROCESSING --
+// ----------------- Data Processing -----------------
 function filterData() {
   const from = $('#fromDate').val();
   const to = $('#toDate').val();
@@ -200,7 +208,7 @@ function aggregate(data, groupBy, selected) {
   return { periods, result };
 }
 
-// -- RENDER TABLE --
+// ----------------- Rendering -----------------
 function populateTable(rows) {
   const tbody = $('#tableBody').empty();
   rows.forEach(r => {
@@ -210,7 +218,6 @@ function populateTable(rows) {
   $('#qualityTable').DataTable().clear().rows.add($('#tableBody tr')).draw();
 }
 
-// -- RENDER CHART --
 function drawChart(data, groupBy, selected) {
   const { periods, result } = aggregate(data, groupBy, selected);
   const num = selected.length || 1;
@@ -248,7 +255,7 @@ function drawChart(data, groupBy, selected) {
   });
 }
 
-// -- UPDATE EVERYTHING --
+// ----------------- Update Logic -----------------
 function update() {
   updateURL();
   const selected = $('#tableFilter').val() || tables;
@@ -268,7 +275,7 @@ function update() {
   drawChart(filtered, groupBy, selected);
 }
 
-// -- INIT & RESIZER --
+// ----------------- Init & Resizer -----------------
 $(document).ready(() => {
   tables.forEach(t => $('#tableFilter').append(`<option value="${t}">${t}</option>`));
   $('#qualityTable').DataTable({ pageLength: 25 });
@@ -286,9 +293,9 @@ $(document).ready(() => {
     update();
   });
 
-  setTimeout(update, 50); // Wait for filter apply
+  setTimeout(update, 50);
 
-  // Resizer logic
+  // ✅ Resizer + DataTable adjust
   let isResizing = false;
   const resizer = document.getElementById('resizer');
   const tableWrapper = document.getElementById('tableWrapper');
@@ -306,8 +313,11 @@ $(document).ready(() => {
   });
 
   window.addEventListener('mouseup', () => {
+    if (!isResizing) return;
     isResizing = false;
     document.body.style.cursor = '';
+    window.dispatchEvent(new Event('resize'));
+    setTimeout(() => $('#qualityTable').DataTable().columns.adjust().draw(), 100);
   });
 });
 </script>
