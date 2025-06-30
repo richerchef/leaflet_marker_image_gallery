@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SQL Data Quality Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <!-- Your external data file -->
+  <script src="data.js"></script>
+  <style>
+    body { margin: 0; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; }
+    h1 { margin: 0; padding: 10px; text-align: center; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    #filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 10px; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    select, input, button { padding: 4px; }
+    #contentWrapper { flex: 1; display: flex; overflow: hidden; }
+    #tableWrapper { min-width: 200px; overflow: auto; resize: horizontal; width: 30%; max-width: 60%; }
+    #resizer { width: 6px; background: #ccc; cursor: col-resize; }
+    #chart { flex: 1; overflow: hidden; }
+    svg { width: 100%; height: 100%; min-height: 400px; }
+    .choices { min-width: 200px; }
+  </style>
+</head>
+<body>
+<h4>Table Coverage Dashboard</h4>
+<div id="filters">
+  <label for="tableFilter">Tables:</label>
+  <select id="tableFilter" multiple></select>
+  <label for="fromDate">From: <input type="date" id="fromDate"></label>
+  <label for="toDate">To: <input type="date" id="toDate"></label>
+  <label for="groupBy">Group by:
+    <select id="groupBy">
+      <option>Day</option>
+      <option>Week</option>
+      <option selected>Month</option>
+      <option>Year</option>
+    </select>
+  </label>
+  <button id="resetFilters">Reset Filters</button>
+</div>
+<div id="contentWrapper">
+  <div id="tableWrapper">
+    <table id="qualityTable" class="display" style="width:100%">
+      <thead><tr><th>Table</th><th>Period</th><th>Avg Coverage %</th></tr></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+  <div id="resizer"></div>
+  <div id="chart"><svg></svg></div>
+</div>
+<script>
+  // Use realData loaded from data.js or fallback to empty array
+  const mockData = window.realData || [];
+
+  // Extract unique tables dynamically from data
+  const tables = [...new Set(mockData.map(d => d.table))].sort();
+
+  function getColor(p) {
+    const r = Math.floor(255 - (p * 2.55));
+    const g = Math.floor(p * 2.55);
+    return `rgb(${r},${g},50)`;
+  }
+  function aggDate(d, group) {
+    const date = new Date(d);
+    if (group === 'Week') {
+      const temp = new Date(date);
+      temp.setDate(temp.getDate() + 3 - ((temp.getDay() + 6) % 7));
+      const week1 = new Date(temp.getFullYear(), 0, 4);
+      const weekNo = 1 + Math.round(((temp - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+      return `${temp.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+    }
+    if (group === 'Month') return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    if (group === 'Year') return `${date.getFullYear()}`;
+    return d;
+  }
+  const color = d3.scaleOrdinal(tables, d3.schemeSet3);
+
+  function getParams() {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      tables: params.get("tables")?.split(",") || [],
+      from: params.get("from") || "",
+      to: params.get("to") || "",
+      group: params.get("group") || "Month",
+      width: params.get("width") || "30%"
+    };
+  }
+  function applyParams(params) {
+    $('#fromDate').val(params.from);
+    $('#toDate').val(params.to);
+    $('#groupBy').val(params.group);
+    $('#tableWrapper').css('width', params.width);
+    if (params.tables.length) {
+      tableChoices.removeActiveItems();
+      tableChoices.setChoiceByValue(params.tables);
+    } else {
+      tableChoices.removeActiveItems();
+      tableChoices.setChoiceByValue(tables);
+    }
+    setTimeout(update, 10);
+  }
+  function updateURL() {
+    const params = new URLSearchParams();
+    const selected = tableChoices.getValue(true);
+    if (selected.length) params.set("tables", selected.join(","));
+    if ($('#fromDate').val()) params.set("from", $('#fromDate').val());
+    if ($('#toDate').val()) params.set("to", $('#toDate').val());
+    params.set("group", $('#groupBy').val());
+    params.set("width", $('#tableWrapper').css('width'));
+    history.replaceState(null, "", `?${params.toString()}`);
+  }
+  function filterData() {
+    const from = $('#fromDate').val();
+    const to = $('#toDate').val();
+    const selected = tableChoices.getValue(true);
+    return mockData.filter(d => selected.includes(d.table) && (!from || d.date >= from) && (!to || d.date <= to));
+  }
+  function aggregate(data, groupBy, selected) {
+    const nested = d3.rollups(data, v => d3.mean(v, d => d.coverage * 100), d => aggDate(d.date, groupBy), d => d.table);
+    const periods = Array.from(new Set(nested.map(d => d[0]))).sort();
+    const result = periods.map(period => {
+      const row = { period };
+      selected.forEach(tbl => {
+        const val = nested.find(d => d[0] === period)?.[1].find(p => p[0] === tbl);
+        row[tbl] = val ? val[1] : 0;
+      });
+      return row;
+    });
+    return { periods, result };
+  }
+  function populateTable(rows) {
+    const tbody = $('#tableBody').empty();
+    rows.forEach(r => {
+      const bg = getColor(r.coverage);
+      tbody.append(`<tr><td>${r.table}</td><td>${r.period}</td><td style="background:${bg};color:white">${r.coverage.toFixed(1)}%</td></tr>`);
+    });
+    $('#qualityTable').DataTable().clear().rows.add($('#tableBody tr')).draw();
+  }
+  function drawChart(data, groupBy, selected) {
+    const { periods, result } = aggregate(data, groupBy, selected);
+    const num = selected.length || 1;
+    const stack = d3.stack().keys(selected)(result);
+    const svg = d3.select("svg").html("");
+    const margin = { top: 40, right: 20, bottom: 100, left: 50 };
+    const width = svg.node().clientWidth - margin.left - margin.right;
+    const height = svg.node().clientHeight - margin.top - margin.bottom;
+    const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+    const x = d3.scaleBand().domain(periods).range([0, width]).padding(0.1);
+    const y = d3.scaleLinear().domain([0, 100]).range([height, 0]);
+    g.append("g").call(d3.axisLeft(y).ticks(5).tickFormat(d => d + "%"));
+    g.append("g").attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(x)).selectAll("text").attr("transform", "rotate(-45)").style("text-anchor", "end");
+    g.selectAll("g.layer")
+      .data(stack).join("g")
+      .attr("fill", d => color(d.key))
+      .selectAll("rect")
+      .data(d => d.map(item => ({ ...item, key: d.key }))).join("rect")
+      .attr("x", d => x(d.data.period))
+      .attr("y", d => y(d[1] / num))
+      .attr("height", d => y(d[0] / num) - y(d[1] / num))
+      .attr("width", x.bandwidth())
+      .append("title")
+      .text(d => `${d.data.period} ${d.key}: ${(d[1] - d[0]).toFixed(1)}%`);
+    const legend = svg.append("g").attr("transform", `translate(${margin.left}, 10)`);
+    selected.forEach((tbl, i) => {
+      const item = legend.append("g").attr("transform", `translate(${i * 100},0)`);
+      item.append("rect").attr("width", 12).attr("height", 12).attr("fill", color(tbl));
+      item.append("text").attr("x", 16).attr("y", 10).text(tbl);
+    });
+  }
+
+  let tableChoices;
+
+  $(document).ready(() => {
+    tableChoices = new Choices('#tableFilter', {
+      removeItemButton: true,
+      searchEnabled: true,
+      placeholderValue: 'Select tables',
+      shouldSort: false,
+    });
+    // Initialize choices with dynamic tables from realData
+    tableChoices.setChoices(tables.map(t => ({ value: t, label: t, selected: false })), 'value', 'label', false);
+
+    $('#qualityTable').DataTable({ pageLength: 25 });
+    $('#tableFilter').on('change', update);
+    $('#fromDate, #toDate, #groupBy').on('change', update);
+    $('#resetFilters').on('click', () => {
+      tableChoices.removeActiveItems();
+      tableChoices.setChoiceByValue(tables);
+      $('#fromDate').val('');
+      $('#toDate').val('');
+      $('#groupBy').val('Month');
+      $('#tableWrapper').css('width', '30%');
+      setTimeout(update, 10);
+    });
+    applyParams(getParams());
+    const resizer = document.getElementById('resizer');
+    const tableWrapper = document.getElementById('tableWrapper');
+    resizer.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      document.addEventListener('mousemove', resize);
+      document.addEventListener('mouseup', stopResize);
+    });
+    function resize(e) {
+      const newWidth = e.clientX / window.innerWidth * 100;
+      tableWrapper.style.width = newWidth + '%';
+      updateURL();
+    }
+    function stopResize() {
+      document.removeEventListener('mousemove', resize);
+      document.removeEventListener('mouseup', stopResize);
+    }
+  });
+
+  function update() {
+    updateURL();
+    const selected = tableChoices.getValue(true);
+    const groupBy = $('#groupBy').val();
+    const filtered = filterData();
+    const { result } = aggregate(filtered, groupBy, selected);
+    const tableData = result.flatMap(row =>
+      selected.map(tbl => ({ table: tbl, period: row.period, coverage: row[tbl] }))
+    ).filter(r => r.coverage !== undefined);
+    populateTable(tableData);
+    drawChart(filtered, groupBy, selected);
+  }
+</script>
+</body>
+</html>
+
+
+// data.js
+// Put your real data here as an array of objects
+
+window.realData = [
+  { table: "table_1", date: "2025-01-01", coverage: 0.87 },
+  { table: "table_2", date: "2025-01-01", coverage: 0.91 },
+  { table: "table_1", date: "2025-01-02", coverage: 0.85 },
+  { table: "table_3", date: "2025-01-02", coverage: 0.95 },
+  // ... more rows
+];
