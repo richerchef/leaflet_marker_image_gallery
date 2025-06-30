@@ -101,11 +101,18 @@ function getParams() {
 }
 
 function applyParams(params) {
-  $('#tableFilter').val(params.tables.length ? params.tables : tables);
-  $('#tableFilter option').prop('selected', true);
   $('#fromDate').val(params.from);
   $('#toDate').val(params.to);
   $('#groupBy').val(params.group);
+
+  // Wait until DOM options are added before selecting
+  setTimeout(() => {
+    const vals = params.tables.length ? params.tables : tables;
+    $('#tableFilter').val(vals);
+    $('#tableFilter option').each(function () {
+      this.selected = vals.includes(this.value);
+    });
+  }, 0);
 }
 
 function updateURL() {
@@ -126,7 +133,7 @@ function filterData() {
   const to = $('#toDate').val();
   const selectedTables = $('#tableFilter').val();
   const selected = selectedTables && selectedTables.length > 0 ? selectedTables : tables;
-  $('#tableFilter').val(selected);  // Force re-select for visibility
+  $('#tableFilter').val(selected);  // Make sure it shows selected on reload
 
   return mockData.filter(d =>
     selected.includes(d.table) &&
@@ -200,7 +207,6 @@ function drawChart(data, groupBy, selected) {
     .append("title")
     .text(d => `${d.data.period} ${d.key}: ${(d[1] - d[0]).toFixed(1)}%`);
 
-  // Legend
   const legend = svg.append("g").attr("transform", `translate(${margin.left}, 10)`);
   selected.forEach((tbl, i) => {
     const item = legend.append("g").attr("transform", `translate(${i * 100},0)`);
@@ -236,7 +242,7 @@ function update() {
 // Init
 // ------------------------------
 $(document).ready(() => {
-  mockData = genData(1000); // 🔁 Replace with real data if needed
+  mockData = genData(1000); // ✅ Replace with real data if needed
   tables.forEach(t => $('#tableFilter').append(`<option value="${t}">${t}</option>`));
   $('#qualityTable').DataTable({ pageLength: 25 });
 
