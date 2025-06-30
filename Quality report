@@ -8,12 +8,65 @@
   <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
-    body { font-family: sans-serif; margin: 20px; background: #f2f4f8; }
-    h1 { text-align: center; }
-    #filters { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
-    select, input, button { padding: 4px; margin-right: 10px; }
-    #chart { margin-top: 30px; }
-    svg { width: 100%; height: 600px; }
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f2f4f8;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    h1 {
+      text-align: center;
+      padding: 10px;
+      margin: 0;
+      background: #ffffff;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    #filters {
+      display: flex;
+      gap: 10px;
+      padding: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      background: #ffffff;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    select, input, button {
+      padding: 4px;
+    }
+
+    #contentWrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    #tableWrapper {
+      height: 50%;
+      overflow: auto;
+    }
+
+    #resizer {
+      height: 6px;
+      background: #ccc;
+      cursor: row-resize;
+    }
+
+    #chart {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+    }
   </style>
 </head>
 <body>
@@ -41,16 +94,22 @@
   <button id="resetFilters">Reset Filters</button>
 </div>
 
-<table id="qualityTable" class="display" style="width:100%">
-  <thead><tr><th>Table</th><th>Period</th><th>Avg Coverage %</th></tr></thead>
-  <tbody id="tableBody"></tbody>
-</table>
+<div id="contentWrapper">
+  <div id="tableWrapper">
+    <table id="qualityTable" class="display" style="width:100%">
+      <thead><tr><th>Table</th><th>Period</th><th>Avg Coverage %</th></tr></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
 
-<div id="chart"><svg></svg></div>
+  <div id="resizer"></div>
+
+  <div id="chart"><svg></svg></div>
+</div>
 
 <script>
 // ------------------------------
-// Config & Mock Data
+// Mock Data
 // ------------------------------
 const tables = Array.from({ length: 20 }, (_, i) => `table_${i + 1}`);
 let mockData = [];
@@ -105,7 +164,6 @@ function applyParams(params) {
   $('#toDate').val(params.to);
   $('#groupBy').val(params.group);
 
-  // Wait until DOM options are added before selecting
   setTimeout(() => {
     const vals = params.tables.length ? params.tables : tables;
     $('#tableFilter').val(vals);
@@ -133,7 +191,7 @@ function filterData() {
   const to = $('#toDate').val();
   const selectedTables = $('#tableFilter').val();
   const selected = selectedTables && selectedTables.length > 0 ? selectedTables : tables;
-  $('#tableFilter').val(selected);  // Make sure it shows selected on reload
+  $('#tableFilter').val(selected);
 
   return mockData.filter(d =>
     selected.includes(d.table) &&
@@ -164,7 +222,7 @@ function aggregate(data, groupBy, selected) {
 }
 
 // ------------------------------
-// Table & Chart Rendering
+// Rendering
 // ------------------------------
 function populateTable(rows) {
   const tbody = $('#tableBody').empty();
@@ -216,7 +274,7 @@ function drawChart(data, groupBy, selected) {
 }
 
 // ------------------------------
-// Master Update Function
+// Update Logic
 // ------------------------------
 function update() {
   updateURL();
@@ -239,10 +297,10 @@ function update() {
 }
 
 // ------------------------------
-// Init
+// Init & Resizer
 // ------------------------------
 $(document).ready(() => {
-  mockData = genData(1000); // ✅ Replace with real data if needed
+  mockData = genData(1000); // ✅ Replace this with your data as array of { table, date (YYYY-MM-DD), coverage: 0–1 }
   tables.forEach(t => $('#tableFilter').append(`<option value="${t}">${t}</option>`));
   $('#qualityTable').DataTable({ pageLength: 25 });
 
@@ -259,7 +317,31 @@ $(document).ready(() => {
     update();
   });
 
-  update();
+  // Resizer logic
+  let isResizing = false;
+  const tableWrapper = document.getElementById('tableWrapper');
+  const chart = document.getElementById('chart');
+  const resizer = document.getElementById('resizer');
+
+  resizer.addEventListener('mousedown', function(e) {
+    isResizing = true;
+    document.body.style.cursor = 'row-resize';
+  });
+
+  window.addEventListener('mousemove', function(e) {
+    if (!isResizing) return;
+    const offset = e.clientY - document.getElementById('contentWrapper').offsetTop;
+    tableWrapper.style.height = offset + 'px';
+  });
+
+  window.addEventListener('mouseup', function() {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = '';
+    }
+  });
+
+  setTimeout(update, 50);
 });
 </script>
 
