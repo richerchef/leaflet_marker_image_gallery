@@ -104,3 +104,89 @@ summary AS (
 -- Final output
 SELECT * FROM summary
 ORDER BY dateid;
+
+
+-- Step 1: Find the minimum and maximum dateid values in your data
+-- This establishes the range of dates we need to generate and analyze.
+WITH date_bounds AS (
+  SELECT 
+    -- Convert integer yyyymmdd to DATE type for correct date arithmetic
+    MIN(TO_DATE(CAST(dateid AS TEXT), 'YYYYMMDD')) AS min_date,
+    MAX(TO_DATE(CAST(dateid AS TEXT), 'YYYYMMDD')) AS max_date
+  FROM your_table  -- Replace 'your_table' with your actual data table name
+),
+
+-- Step 2: Generate a complete list (calendar) of all dates between min_date and max_date inclusive
+-- We use generate_series to create one row per day
+-- Each generated date is then converted back to the integer yyyymmdd format
+calendar AS (
+  SELECT 
+    TO_CHAR(day, 'YYYYMMDD')::INT AS dateid
+  FROM date_bounds,
+  GENERATE_SERIES(min_date, max_date, INTERVAL '1 day') AS day
+),
+
+-- Step 3: Prepare the data by calculating the previous timeid for each row
+-- Partition by dateid so calculations happen per day
+-- Order by timeid to ensure the previous timeid corresponds to the immediate earlier sample
+with_lags AS (
+  SELECT 
+    dateid,
+    timeid,
+    LAG(timeid) OVER (
+      PARTITION BY dateid
+      ORDER BY timeid
+    ) AS prev_timeid
+  FROM your_table  -- Your raw data table with time series entries
+),
+
+-- Step 4: Calculate the number of missing 300-second intervals between each current timeid and its previous timeid
+-- Logic:
+-- - If prev_timeid is NULL (first record of the day), no missing intervals counted
+-- - If gap between timeid and prev_timeid is larger than expected interval (300), calculate missing intervals
+--   by dividing gap by 300 and subtracting 1 (because actual samples are endpoints)
+-- - Otherwise, no missing intervals
+missing_intervals AS (
+  SELECT 
+    dateid,
+    CASE 
+      WHEN prev_timeid IS NULL THEN 0
+      WHEN timeid - prev_timeid > 300 
+        THEN FLOOR((timeid - prev_timeid) / 300) - 1
+      ELSE 0
+    END AS missing_count
+  FROM with_lags
+),
+
+-- Step 5: Aggregate per dateid
+-- Summarize total missing intervals and count actual samples per day
+-- Assume expected_samples = 288 (24 hours * 3600 seconds / 300 seconds per sample)
+-- Calculate estimated present intervals and coverage percentage
+summary AS (
+  SELECT 
+    dateid,
+    SUM(missing_count) AS total_missing_intervals,  -- Total missing intervals per day
+    COUNT(*) AS actual_samples,                     -- Actual samples recorded per day
+    288 AS expected_samples,                         -- Total expected samples per full day at 300s intervals
+    288 - SUM(missing_count) AS estimated_present_intervals, -- Estimated intervals with data present
+    ROUND(100.0 * (288 - SUM(missing_count)) / 288, 2) AS coverage_percent -- Coverage %
+  FROM missing_intervals
+  GROUP BY dateid
+)
+
+-- Step 6: Join the generated calendar with the summary to ensure all dates in the range appear in results
+-- For dates missing in the summary (i.e. no data), use COALESCE to fill default values:
+-- - total_missing_intervals = 288 (all missing)
+-- - actual_samples = 0
+-- - estimated_present_intervals = 0
+-- - coverage_percent = 0%
+SELECT 
+  c.dateid,
+  COALESCE(s.total_missing_intervals, 288) AS total_missing_intervals,
+  COALESCE(s.actual_samples, 0) AS actual_samples,
+  288 AS expected_samples,
+  COALESCE(s.estimated_present_intervals, 0) AS estimated_present_intervals,
+  COALESCE(s.coverage_percent, 0) AS coverage_percent
+FROM calendar c
+LEFT JOIN summary s ON c.dateid = s.dateid
+ORDER BY c.dateid;
