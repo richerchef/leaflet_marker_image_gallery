@@ -4,14 +4,15 @@
   <meta charset="UTF-8" />
   <title>SQL Data Quality Dashboard</title>
   <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css" />
   <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
     body {
       margin: 0;
       font-family: sans-serif;
-      background: #f2f4f8;
       height: 100vh;
       display: flex;
       flex-direction: column;
@@ -67,6 +68,10 @@
       width: 100%;
       height: 100%;
     }
+
+    .choices {
+      min-width: 200px;
+    }
   </style>
 </head>
 <body>
@@ -74,16 +79,16 @@
 <h1>SQL Table Coverage Dashboard</h1>
 
 <div id="filters">
-  <label>Tables:
-    <select id="tableFilter" multiple size="5"></select>
-  </label>
-  <label>From:
+  <label for="tableFilter">Tables:</label>
+  <select id="tableFilter" multiple></select>
+
+  <label for="fromDate">From:
     <input type="date" id="fromDate">
   </label>
-  <label>To:
+  <label for="toDate">To:
     <input type="date" id="toDate">
   </label>
-  <label>Group by:
+  <label for="groupBy">Group by:
     <select id="groupBy">
       <option>Day</option>
       <option>Week</option>
@@ -125,7 +130,6 @@ function getColor(p) {
   return `rgb(${r},${g},50)`;
 }
 
-// ✅ Correct ISO Week grouping
 function aggDate(d, group) {
   const date = new Date(d);
   if (group === 'Week') {
@@ -158,18 +162,16 @@ function applyParams(params) {
   $('#fromDate').val(params.from);
   $('#toDate').val(params.to);
   $('#groupBy').val(params.group);
-  setTimeout(() => {
-    const vals = params.tables.length ? params.tables : tables;
-    $('#tableFilter').val(vals);
-    $('#tableFilter option').each(function () {
-      this.selected = vals.includes(this.value);
-    });
-  }, 0);
+  if (params.tables.length) {
+    tableChoices.setValue(params.tables.map(t => ({ value: t })));
+  } else {
+    tableChoices.setValue(tables.map(t => ({ value: t })));
+  }
 }
 
 function updateURL() {
   const params = new URLSearchParams();
-  const selected = $('#tableFilter').val() || [];
+  const selected = tableChoices.getValue(true);
   if (selected.length) params.set("tables", selected.join(","));
   if ($('#fromDate').val()) params.set("from", $('#fromDate').val());
   if ($('#toDate').val()) params.set("to", $('#toDate').val());
@@ -181,7 +183,7 @@ function updateURL() {
 function filterData() {
   const from = $('#fromDate').val();
   const to = $('#toDate').val();
-  const selected = $('#tableFilter').val() || tables;
+  const selected = tableChoices.getValue(true);
   return mockData.filter(d =>
     selected.includes(d.table) &&
     (!from || d.date >= from) &&
@@ -255,38 +257,34 @@ function drawChart(data, groupBy, selected) {
   });
 }
 
-// ----------------- Update Logic -----------------
-function update() {
-  updateURL();
-  const selected = $('#tableFilter').val() || tables;
-  const groupBy = $('#groupBy').val();
-  const filtered = filterData();
-  const { result } = aggregate(filtered, groupBy, selected);
+// ----------------- Main -----------------
+let tableChoices;
 
-  const tableData = result.flatMap(row =>
-    selected.map(tbl => ({
-      table: tbl,
-      period: row.period,
-      coverage: row[tbl]
-    }))
-  ).filter(r => r.coverage !== undefined);
-
-  populateTable(tableData);
-  drawChart(filtered, groupBy, selected);
-}
-
-// ----------------- Init & Resizer -----------------
 $(document).ready(() => {
-  tables.forEach(t => $('#tableFilter').append(`<option value="${t}">${t}</option>`));
+  tableChoices = new Choices('#tableFilter', {
+    removeItemButton: true,
+    searchEnabled: true,
+    placeholderValue: 'Select tables',
+    shouldSort: false,
+  });
+
+  tableChoices.setChoices(
+    tables.map(t => ({ value: t, label: t, selected: false })),
+    'value',
+    'label',
+    false
+  );
+
   $('#qualityTable').DataTable({ pageLength: 25 });
 
   const params = getParams();
   applyParams(params);
 
-  $('#tableFilter, #fromDate, #toDate, #groupBy').on('change', update);
+  $('#tableFilter').on('change', update);
+  $('#fromDate, #toDate, #groupBy').on('change', update);
+
   $('#resetFilters').on('click', () => {
-    $('#tableFilter').val(tables);
-    $('#tableFilter option').prop('selected', true);
+    tableChoices.setValue(tables.map(t => ({ value: t })));
     $('#fromDate').val('');
     $('#toDate').val('');
     $('#groupBy').val('Month');
@@ -295,7 +293,6 @@ $(document).ready(() => {
 
   setTimeout(update, 50);
 
-  // ✅ Resizer + DataTable adjust
   let isResizing = false;
   const resizer = document.getElementById('resizer');
   const tableWrapper = document.getElementById('tableWrapper');
