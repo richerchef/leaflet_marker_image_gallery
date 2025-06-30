@@ -2,16 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Data Quality Dashboard</title>
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+  <title>SQL Data Quality Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css" />
   <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
   <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
     body {
-      font-family: sans-serif;
       margin: 0;
-      padding: 0;
+      font-family: sans-serif;
       background: #f2f4f8;
       height: 100vh;
       display: flex;
@@ -19,21 +18,21 @@
     }
 
     h1 {
-      text-align: center;
-      padding: 10px;
       margin: 0;
-      background: #ffffff;
+      padding: 10px;
+      text-align: center;
+      background: white;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 
     #filters {
       display: flex;
       gap: 10px;
-      padding: 10px;
-      align-items: center;
       flex-wrap: wrap;
-      background: #ffffff;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      align-items: center;
+      padding: 10px;
+      background: white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
     select, input, button {
@@ -43,19 +42,20 @@
     #contentWrapper {
       flex: 1;
       display: flex;
-      flex-direction: column;
-      height: 100%;
+      overflow: hidden;
     }
 
     #tableWrapper {
-      height: 50%;
+      width: 30%;
+      min-width: 200px;
+      max-width: 60%;
       overflow: auto;
     }
 
     #resizer {
-      height: 6px;
+      width: 6px;
       background: #ccc;
-      cursor: row-resize;
+      cursor: col-resize;
     }
 
     #chart {
@@ -101,35 +101,24 @@
       <tbody id="tableBody"></tbody>
     </table>
   </div>
-
   <div id="resizer"></div>
-
   <div id="chart"><svg></svg></div>
 </div>
 
 <script>
-// ------------------------------
-// Mock Data
-// ------------------------------
+// -- MOCK DATA (replace with real data format: { table, date: 'YYYY-MM-DD', coverage: 0–1 }) --
 const tables = Array.from({ length: 20 }, (_, i) => `table_${i + 1}`);
-let mockData = [];
+let mockData = Array.from({ length: 1000 }, () => {
+  const table = tables[Math.floor(Math.random() * tables.length)];
+  const date = new Date(2024, 0, 1 + Math.random() * 180);
+  return {
+    table,
+    date: date.toISOString().split('T')[0],
+    coverage: +(Math.random()).toFixed(2)
+  };
+});
 
-function genData(n = 1000) {
-  const start = new Date(2024, 0, 1);
-  return Array.from({ length: n }, () => {
-    const table = tables[Math.floor(Math.random() * tables.length)];
-    const date = new Date(start.getTime() + Math.random() * 1000 * 60 * 60 * 24 * 180);
-    return {
-      table,
-      date: date.toISOString().split('T')[0],
-      coverage: +(Math.random()).toFixed(2)
-    };
-  });
-}
-
-// ------------------------------
-// Helpers
-// ------------------------------
+// -- HELPERS --
 function getColor(p) {
   const r = Math.floor(255 - (p * 2.55));
   const g = Math.floor(p * 2.55);
@@ -146,9 +135,7 @@ function aggDate(d, group) {
 
 const color = d3.scaleOrdinal(tables, d3.schemeSet3);
 
-// ------------------------------
-// URL Filter Persistence
-// ------------------------------
+// -- FILTERS FROM URL --
 function getParams() {
   const params = new URLSearchParams(window.location.search);
   return {
@@ -163,7 +150,6 @@ function applyParams(params) {
   $('#fromDate').val(params.from);
   $('#toDate').val(params.to);
   $('#groupBy').val(params.group);
-
   setTimeout(() => {
     const vals = params.tables.length ? params.tables : tables;
     $('#tableFilter').val(vals);
@@ -183,16 +169,11 @@ function updateURL() {
   history.replaceState(null, "", `?${params.toString()}`);
 }
 
-// ------------------------------
-// Data Filtering & Aggregation
-// ------------------------------
+// -- DATA PROCESSING --
 function filterData() {
   const from = $('#fromDate').val();
   const to = $('#toDate').val();
-  const selectedTables = $('#tableFilter').val();
-  const selected = selectedTables && selectedTables.length > 0 ? selectedTables : tables;
-  $('#tableFilter').val(selected);
-
+  const selected = $('#tableFilter').val() || tables;
   return mockData.filter(d =>
     selected.includes(d.table) &&
     (!from || d.date >= from) &&
@@ -207,23 +188,19 @@ function aggregate(data, groupBy, selected) {
     d => aggDate(d.date, groupBy),
     d => d.table
   );
-
   const periods = Array.from(new Set(nested.map(d => d[0]))).sort();
   const result = periods.map(period => {
-    const entry = { period };
+    const row = { period };
     selected.forEach(tbl => {
       const val = nested.find(d => d[0] === period)?.[1].find(p => p[0] === tbl);
-      entry[tbl] = val ? val[1] : 0;
+      row[tbl] = val ? val[1] : 0;
     });
-    return entry;
+    return row;
   });
-
   return { periods, result };
 }
 
-// ------------------------------
-// Rendering
-// ------------------------------
+// -- RENDER TABLE --
 function populateTable(rows) {
   const tbody = $('#tableBody').empty();
   rows.forEach(r => {
@@ -233,14 +210,12 @@ function populateTable(rows) {
   $('#qualityTable').DataTable().clear().rows.add($('#tableBody tr')).draw();
 }
 
+// -- RENDER CHART --
 function drawChart(data, groupBy, selected) {
   const { periods, result } = aggregate(data, groupBy, selected);
   const num = selected.length || 1;
-
   const stack = d3.stack().keys(selected)(result);
-  const svg = d3.select("svg");
-  svg.selectAll("*").remove();
-
+  const svg = d3.select("svg").html("");
   const margin = { top: 40, right: 20, bottom: 100, left: 50 };
   const width = svg.node().clientWidth - margin.left - margin.right;
   const height = svg.node().clientHeight - margin.top - margin.bottom;
@@ -273,13 +248,10 @@ function drawChart(data, groupBy, selected) {
   });
 }
 
-// ------------------------------
-// Update Logic
-// ------------------------------
+// -- UPDATE EVERYTHING --
 function update() {
   updateURL();
-  const selectedTables = $('#tableFilter').val();
-  const selected = selectedTables && selectedTables.length > 0 ? selectedTables : tables;
+  const selected = $('#tableFilter').val() || tables;
   const groupBy = $('#groupBy').val();
   const filtered = filterData();
   const { result } = aggregate(filtered, groupBy, selected);
@@ -296,11 +268,8 @@ function update() {
   drawChart(filtered, groupBy, selected);
 }
 
-// ------------------------------
-// Init & Resizer
-// ------------------------------
+// -- INIT & RESIZER --
 $(document).ready(() => {
-  mockData = genData(1000); // ✅ Replace this with your data as array of { table, date (YYYY-MM-DD), coverage: 0–1 }
   tables.forEach(t => $('#tableFilter').append(`<option value="${t}">${t}</option>`));
   $('#qualityTable').DataTable({ pageLength: 25 });
 
@@ -317,31 +286,29 @@ $(document).ready(() => {
     update();
   });
 
+  setTimeout(update, 50); // Wait for filter apply
+
   // Resizer logic
   let isResizing = false;
-  const tableWrapper = document.getElementById('tableWrapper');
-  const chart = document.getElementById('chart');
   const resizer = document.getElementById('resizer');
+  const tableWrapper = document.getElementById('tableWrapper');
 
-  resizer.addEventListener('mousedown', function(e) {
+  resizer.addEventListener('mousedown', e => {
     isResizing = true;
-    document.body.style.cursor = 'row-resize';
+    document.body.style.cursor = 'col-resize';
+    e.preventDefault();
   });
 
-  window.addEventListener('mousemove', function(e) {
+  window.addEventListener('mousemove', e => {
     if (!isResizing) return;
-    const offset = e.clientY - document.getElementById('contentWrapper').offsetTop;
-    tableWrapper.style.height = offset + 'px';
+    const offset = e.clientX - document.getElementById('contentWrapper').offsetLeft;
+    tableWrapper.style.width = Math.min(Math.max(offset, 200), window.innerWidth * 0.6) + 'px';
   });
 
-  window.addEventListener('mouseup', function() {
-    if (isResizing) {
-      isResizing = false;
-      document.body.style.cursor = '';
-    }
+  window.addEventListener('mouseup', () => {
+    isResizing = false;
+    document.body.style.cursor = '';
   });
-
-  setTimeout(update, 50);
 });
 </script>
 
