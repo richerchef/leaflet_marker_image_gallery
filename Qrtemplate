@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Data Quality Report</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community/dist/ag-grid-community.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-grid.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-alpine.css" rel="stylesheet" />
+    <style>
+        html {
+            scroll-behavior: smooth;
+        }
+        body {
+            display: flex;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        /* Sidebar */
+        nav {
+            width: 250px;
+            background: #f8f9fa;
+            padding: 20px;
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            overflow-y: auto;
+            border-right: 1px solid #ddd;
+        }
+
+        nav h3 {
+            margin-top: 0;
+        }
+
+        nav ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        nav li {
+            margin: 10px 0;
+        }
+
+        nav a {
+            text-decoration: none;
+            color: #333;
+            font-weight: 500;
+        }
+
+        nav a.active {
+            color: #007bff;
+        }
+
+        main {
+            padding: 40px;
+            flex-grow: 1;
+            max-width: 100%;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 30px;
+        }
+
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px;
+        }
+
+        .pill {
+            display: inline-block;
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            width: 100%;
+        }
+
+        .pill-fill {
+            height: 100%;
+            text-align: right;
+            padding-right: 8px;
+            line-height: 20px;
+            color: white;
+            border-radius: 10px;
+            background: linear-gradient(to right, #28a745, #218838);
+        }
+
+        .section {
+            margin-bottom: 60px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<nav>
+    <h3>Contents</h3>
+    <ul>
+        <li><a href="#inputs">🔧 Inputs</a></li>
+        {% for check in quality_checks %}
+            <li><a href="#{{ check.id }}">{{ check.icon or '✅' }} {{ check.title }}</a></li>
+        {% endfor %}
+        <li><a href="#insights">📈 Insights</a></li>
+        <li><a href="#appendix">📚 Appendix</a></li>
+    </ul>
+</nav>
+
+<!-- Main Content -->
+<main>
+
+    <!-- Inputs Section -->
+    <div class="section" id="inputs">
+        <h2>Input Parameters</h2>
+        <table>
+            <tbody>
+            {% for key, value in params.items() %}
+                <tr><th>{{ key }}</th><td>{{ value }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Dynamic Quality Checks -->
+    {% for check in quality_checks %}
+    <div class="section" id="{{ check.id }}">
+        <h2>{{ check.title }}</h2>
+        <table>
+            <thead>
+                <tr><th>Column</th><th>{{ check.metric_label }}</th><th>Visual</th></tr>
+            </thead>
+            <tbody>
+            {% for row in check.data %}
+                <tr>
+                    <td>{{ row.column }}</td>
+                    <td>{{ row.value }}{{ check.suffix or '%' }}</td>
+                    <td>
+                        <div class="pill">
+                            <div class="pill-fill" style="width: {{ row.value }}%;">
+                                {{ row.value }}%
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endfor %}
+
+    <!-- Insights Section -->
+    <div class="section" id="insights">
+        <h2>Data Insights</h2>
+        <div id="plotly-chart" style="height: 400px;"></div>
+        <script>
+            var plotData = {{ plotly_json | safe }};
+            Plotly.newPlot('plotly-chart', plotData.data, plotData.layout);
+        </script>
+    </div>
+
+    <!-- Appendix Section -->
+    <div class="section" id="appendix">
+        <h2>Appendix: Raw Data</h2>
+        <div id="ag-grid" class="ag-theme-alpine" style="height: 400px;"></div>
+        <script>
+            var agData = {{ ag_data | safe }};
+            var columnDefs = Object.keys(agData[0]).map(key => ({ field: key }));
+
+            new agGrid.Grid(document.getElementById('ag-grid'), {
+                columnDefs: columnDefs,
+                rowData: agData,
+                pagination: true,
+                paginationPageSize: 10,
+                defaultColDef: {
+                    filter: true,
+                    sortable: true,
+                    resizable: true
+                }
+            });
+        </script>
+    </div>
+
+</main>
+
+<!-- Intersection Observer for active ToC -->
+<script>
+    const observerOptions = {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.3
+    };
+
+    const sections = document.querySelectorAll('.section');
+    const navLinks = document.querySelectorAll('nav a');
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = entry.target.id;
+                navLinks.forEach(link => {
+                    link.classList.toggle('active', link.getAttribute('href') === `#${id}`);
+                });
+            }
+        });
+    }, observerOptions);
+
+    sections.forEach(section => observer.observe(section));
+</script>
+
+</body>
+</html>
