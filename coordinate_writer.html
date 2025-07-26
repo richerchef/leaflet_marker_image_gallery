@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Labelled Marker Tool</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: calc(100% - 60px); }
+    header {
+      height: 60px;
+      background: #2c3e50;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 15px;
+      font-family: sans-serif;
+    }
+    #controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    #controls button, #controls input {
+      padding: 5px 10px;
+      border: none;
+      border-radius: 3px;
+      font-size: 14px;
+    }
+    #controls button { background: #3498db; color: white; cursor: pointer; }
+    #controls input { background: white; color: black; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Labelled Marker Tool</h1>
+  <div id="controls">
+    <button onclick="downloadCSV()">Export CSV</button>
+    <label><input type="file" accept=".csv" onchange="loadCSV(event)"> Import CSV</label>
+    <span id="markerCount">Markers: 0</span>
+  </div>
+</header>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+  const imageUrl = 'diagram.png'; // your image
+  const markers = []; // {x, y, label}
+  let map, markerLayerGroup;
+
+  function updateMarkerCount() {
+    document.getElementById('markerCount').textContent = `Markers: ${markers.length}`;
+  }
+
+  function initializeMap(img) {
+    const imageWidth = img.naturalWidth;
+    const imageHeight = img.naturalHeight;
+
+    map = L.map('map', { crs: L.CRS.Simple, minZoom: -5 });
+    const bounds = [[0, 0], [imageHeight, imageWidth]];
+    L.imageOverlay(imageUrl, bounds).addTo(map);
+    map.fitBounds(bounds);
+
+    markerLayerGroup = L.layerGroup().addTo(map);
+
+    map.on('click', function (e) {
+      const { lat, lng } = e.latlng;
+      const label = prompt("Enter label for this marker:");
+      if (label !== null && label.trim() !== "") {
+        addDraggableMarker(lat, lng, 'red', label.trim());
+      }
+    });
+  }
+
+  function addDraggableMarker(lat, lng, color = 'red', label = '') {
+    const markerData = { x: lng, y: lat, label };
+    markers.push(markerData);
+
+    const circle = L.circleMarker([lat, lng], {
+      radius: 8,
+      color,
+      fillColor: color,
+      fillOpacity: 0.8
+    }).bindTooltip(label || `[${lng.toFixed(1)}, ${lat.toFixed(1)}]`).addTo(markerLayerGroup);
+
+    const dragMarker = L.marker([lat, lng], {
+      draggable: true,
+      opacity: 0,
+      interactive: true
+    }).addTo(markerLayerGroup);
+
+    dragMarker.on('drag', (e) => {
+      const pos = e.latlng;
+      circle.setLatLng(pos);
+    });
+
+    dragMarker.on('dragend', (e) => {
+      const pos = e.target.getLatLng();
+      const i = findMarkerIndex(lat, lng, label);
+      if (i !== -1) {
+        markers[i].x = pos.lng;
+        markers[i].y = pos.lat;
+      }
+      updateMarkerCount();
+    });
+
+    [circle, dragMarker].forEach(m => {
+      m.on('contextmenu', () => {
+        const i = findMarkerIndex(circle.getLatLng().lat, circle.getLatLng().lng, label);
+        if (i !== -1) {
+          markers.splice(i, 1);
+          markerLayerGroup.removeLayer(circle);
+          markerLayerGroup.removeLayer(dragMarker);
+          updateMarkerCount();
+        }
+      });
+    });
+
+    updateMarkerCount();
+  }
+
+  function findMarkerIndex(lat, lng, label) {
+    return markers.findIndex(m =>
+      Math.abs(m.x - lng) < 0.001 &&
+      Math.abs(m.y - lat) < 0.001 &&
+      m.label === label
+    );
+  }
+
+  function downloadCSV() {
+    const csv = "x,y,label\n" + markers.map(m => `${m.x},${m.y},"${m.label.replace(/"/g, '""')}"`).join("\n");
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'markers.csv';
+    a.click();
+  }
+
+  function loadCSV(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      const lines = e.target.result.trim().split('\n');
+      const header = lines.shift();
+      lines.forEach(line => {
+        const match = line.match(/^([^,]+),([^,]+),"(.*)"$/);
+        if (match) {
+          const [, x, y, label] = match;
+          addDraggableMarker(parseFloat(y), parseFloat(x), 'blue', label.replace(/""/g, '"'));
+        }
+      });
+    };
+    reader.readAsText(file);
+  }
+
+  // Wait until image is loaded to initialize map
+  const img = new Image();
+  img.src = imageUrl;
+  img.onload = () => initializeMap(img);
+</script>
+</body>
+</html>
