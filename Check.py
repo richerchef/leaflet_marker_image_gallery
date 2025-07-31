@@ -1,143 +1,70 @@
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.colors as pc
 
-# Step 1: Generate daily coverage data
-np.random.seed(1)
-dates = pd.date_range(start="2024-01-01", end="2024-12-31", freq="D")
-coverage = np.random.uniform(0, 1, size=len(dates))  # Coverage as float between 0-1
+# Parameters
+num_bins = 10  # You can change this (e.g., 5, 20, etc.)
+
+# Generate daily coverage for 1 year
+np.random.seed(42)
+dates = pd.date_range("2024-01-01", "2024-12-31", freq="D")
+coverage = np.random.rand(len(dates))  # 0 to 1
 
 df = pd.DataFrame({
     "Date": dates,
     "Coverage": coverage
 })
 
-# Step 2: Bin coverage into thresholds
-def coverage_label(c):
-    if c < 0.5:
-        return "Low (<50%)"
-    elif c < 0.7:
-        return "Medium (50–70%)"
-    else:
-        return "High (>70%)"
+# Bin coverage into equal-width bins
+bin_edges = np.linspace(0, 1, num_bins + 1)
+bin_labels = [(bin_edges[i] + bin_edges[i + 1]) / 2 for i in range(num_bins)]  # for color mapping
+df["Bin"] = pd.cut(df["Coverage"], bins=bin_edges, labels=bin_labels, include_lowest=True)
 
-df["CoverageLabel"] = df["Coverage"].apply(coverage_label)
-
-# Step 3: Group consecutive days with same label into blocks
-df["Group"] = (df["CoverageLabel"] != df["CoverageLabel"].shift()).cumsum()
+# Group consecutive days in same bin
+df["Group"] = (df["Bin"] != df["Bin"].shift()).cumsum()
 
 grouped = df.groupby("Group").agg({
-    "Date": ["first", "last"],
-    "Coverage": "mean",
-    "CoverageLabel": "first"
+    "Date": ['first', 'last'],
+    "Coverage": 'mean',
+    "Bin": 'first'
 }).reset_index(drop=True)
 
-grouped.columns = ["Start", "End", "AvgCoverage", "CoverageLabel"]
+grouped.columns = ["Start", "End", "AvgCoverage", "BinLabel"]
 grouped["Sensor"] = "Sensor A"
 
-# Step 4: Create timeline
+# Normalize bin values to map to a color scale
+norm_bins = [float(label) for label in grouped["BinLabel"]]
+colorscale = px.colors.sequential.RdYlGn[::-1]  # Reverse to go from red (low) to green (high)
+
+# Map normalized bin values to color scale
+def get_color(value):
+    # Normalize between 0 and 1
+    norm = value
+    idx = int(norm * (len(colorscale) - 1))
+    return colorscale[idx]
+
+grouped["Color"] = [get_color(b) for b in norm_bins]
+
+# Plot timeline
 fig = px.timeline(
     grouped,
     x_start="Start",
     x_end="End",
     y="Sensor",
-    color="CoverageLabel",
-    color_discrete_map={
-        "Low (<50%)": "red",
-        "Medium (50–70%)": "orange",
-        "High (>70%)": "green"
-    },
-    hover_data={"AvgCoverage": ":.0%"},  # show average coverage of block
-    title="Sensor A Coverage Timeline (2024)"
+    color="Color",  # color column must exist; we'll override it
+    color_discrete_map={c: c for c in grouped["Color"]},
+    hover_data={"AvgCoverage": ":.0%"},
+    title=f"Sensor A Coverage Timeline ({num_bins} Bins)"
 )
 
-# Optional layout tweaks
-fig.update_yaxes(autorange="reversed")  # Gantt-style
+fig.update_yaxes(autorange="reversed")
 fig.update_layout(
     height=300,
     xaxis_title="Date",
     yaxis_title="",
-    bargap=0.1,
+    showlegend=False,
     margin=dict(l=20, r=20, t=40, b=40)
 )
-
-fig.show()
-# Optional: Add a line on top of fill
-fig.add_trace(go.Scatter(
-    x=df['Date'],
-    y=df['Coverage'] * 100,
-    mode='lines',
-    line=dict(shape='hv', color='darkgreen', width=2),
-    name='',
-    hoverinfo='skip',
-    showlegend=False
-))
-
-# Layout
-fig.update_layout(
-    title='Sensor A Coverage Over Time (Weekly)',
-    yaxis_title='Coverage (%)',
-    xaxis_title='Date',
-    yaxis_range=[0, 100],
-    height=400,
-    plot_bgcolor='white'
-)
-
-fig.show()
-df = pd.DataFrame(data)
-
-# Assign color by threshold
-def coverage_color(cov):
-    if cov < 0.5:
-        return 'red'
-    elif cov < 0.7:
-        return 'orange'
-    elif cov < 0.9:
-        return 'yellowgreen'
-    else:
-        return 'green'
-
-df['Color'] = df['Coverage'].apply(coverage_color)
-
-# Compute average coverage per sensor for legend label
-avg_cov = df.groupby('Sensor')['Coverage'].mean().reset_index()
-avg_cov['CoverageLabel'] = avg_cov['Coverage'].apply(lambda c: f"{c*100:.1f}%")
-df = df.merge(avg_cov[['Sensor', 'CoverageLabel']], on='Sensor', how='left')
-df['LegendLabel'] = df.apply(lambda row: f"{row['Sensor']} ({row['CoverageLabel']})", axis=1)
-
-# Sort y-axis alphabetically or by avg coverage
-df['Sensor'] = pd.Categorical(df['Sensor'], categories=sorted(df['Sensor'].unique()), ordered=True)
-
-# Plot
-fig = px.timeline(
-    df,
-    x_start='Start',
-    x_end='End',
-    y='Sensor',
-    color='Color',
-    color_discrete_map='identity',
-    hover_data={'Coverage': ':.0%'}
-)
-
-fig.update_yaxes(autorange='reversed')
-fig.update_layout(
-    title="Sensor Coverage Timeline - 2024",
-    height=700,
-    margin=dict(t=60, b=20),
-    legend_title_text='Sensors (Avg Coverage)'
-)
-
-# Update legend labels and groupings to avoid duplicates
-seen = set()
-for trace in fig.data:
-    sensor_name = trace.y[0]
-    label = df[df['Sensor'] == sensor_name]['LegendLabel'].iloc[0]
-    trace.name = label
-    trace.legendgroup = label
-    if label not in seen:
-        trace.showlegend = True
-        seen.add(label)
-    else:
-        trace.showlegend = False
 
 fig.show()
