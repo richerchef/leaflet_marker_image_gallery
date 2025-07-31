@@ -1,40 +1,84 @@
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import plotly.colors as pc
 
-# Parameters
-num_bins = 10  # You can change this (e.g., 5, 20, etc.)
+# Setup
+colorscale = pc.diverging.RdYlGn[::-1]
 
-# Generate daily coverage for 1 year
-np.random.seed(42)
-dates = pd.date_range("2024-01-01", "2024-12-31", freq="D")
-coverage = np.random.rand(len(dates))  # 0 to 1
+# Create multiple sensor data
+sensors = ['Sensor A', 'Sensor B']
+all_data = []
 
-df = pd.DataFrame({
-    "Date": dates,
-    "Coverage": coverage
-})
+for sensor in sensors:
+    df = pd.DataFrame({
+        'Sensor': [sensor] * 10,
+        'Start': pd.date_range('2025-01-01', periods=10, freq='30D'),
+        'End': pd.date_range('2025-01-01', periods=10, freq='30D') + pd.Timedelta(days=1),
+        'Coverage': np.random.uniform(0, 1, size=10)
+    })
+    df['Color'] = pd.cut(df['Coverage'], bins=10, labels=False).astype(int)
+    df['Color'] = df['Color'].apply(lambda i: colorscale[i])
+    all_data.append(df)
 
-# Bin coverage into equal-width bins
-bin_edges = np.linspace(0, 1, num_bins + 1)
-bin_labels = [(bin_edges[i] + bin_edges[i + 1]) / 2 for i in range(num_bins)]  # for color mapping
-df["Bin"] = pd.cut(df["Coverage"], bins=bin_edges, labels=bin_labels, include_lowest=True)
+df = pd.concat(all_data)
 
-# Group consecutive days in same bin
-df["Group"] = (df["Bin"] != df["Bin"].shift()).cumsum()
+# Create initial empty figure
+fig = go.Figure()
 
-grouped = df.groupby("Group").agg({
-    "Date": ['first', 'last'],
-    "Coverage": 'mean',
-    "Bin": 'first'
-}).reset_index(drop=True)
+# Add traces per sensor
+for sensor in df['Sensor'].unique():
+    subdf = df[df['Sensor'] == sensor]
+    for _, row in subdf.iterrows():
+        fig.add_trace(go.Bar(
+            x=[(row['End'] - row['Start']).days],
+            y=[row['Sensor']],
+            base=row['Start'],
+            orientation='h',
+            marker=dict(color=row['Color']),
+            hovertext=f"{row['Coverage']*100:.1f}%",
+            name=row['Sensor'],
+            showlegend=False  # We'll use custom buttons instead
+        ))
 
-grouped.columns = ["Start", "End", "AvgCoverage", "BinLabel"]
-grouped["Sensor"] = "Sensor A"
+# Create buttons for each sensor
+buttons = []
+for i, sensor in enumerate(sensors):
+    visible = [False] * len(fig.data)
+    for j, trace in enumerate(fig.data):
+        if trace.name == sensor:
+            visible[j] = True
+    buttons.append(dict(label=sensor,
+                        method="update",
+                        args=[{"visible": visible},
+                              {"title": f"Viewing: {sensor}"}]))
 
-# Normalize bin values to map to a color scale
-norm_bins = [float(label) for label in grouped["BinLabel"]]
+# Add "All" button
+buttons.insert(0, dict(label="All",
+                       method="update",
+                       args=[{"visible": [True]*len(fig.data)},
+                             {"title": "All Sensors"}]))
+
+# Update layout with buttons
+fig.update_layout(
+    title="Sensor Coverage Timeline",
+    updatemenus=[dict(
+        type="dropdown",
+        buttons=buttons,
+        direction="down",
+        showactive=True,
+        x=0.1,
+        xanchor="left",
+        y=1.2,
+        yanchor="top"
+    )],
+    barmode='stack',
+    xaxis_title="Date",
+    yaxis=dict(autorange="reversed")
+)
+
+fig.show()norm_bins = [float(label) for label in grouped["BinLabel"]]
 colorscale = px.colors.sequential.RdYlGn[::-1]  # Reverse to go from red (low) to green (high)
 
 # Map normalized bin values to color scale
