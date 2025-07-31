@@ -1,40 +1,80 @@
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
-import plotly.colors as pc
+from datetime import datetime, timedelta
 
-# Setup
-colorscale = pc.diverging.RdYlGn[::-1]
+# Simulate random sensor data
+np.random.seed(1)
+date_range = pd.date_range(start="2024-01-01", end="2024-12-31", freq='D')
 
-# Create multiple sensor data
 sensors = ['Sensor A', 'Sensor B']
-all_data = []
+data = []
 
 for sensor in sensors:
-    df = pd.DataFrame({
-        'Sensor': [sensor] * 10,
-        'Start': pd.date_range('2025-01-01', periods=10, freq='30D'),
-        'End': pd.date_range('2025-01-01', periods=10, freq='30D') + pd.Timedelta(days=1),
-        'Coverage': np.random.uniform(0, 1, size=10)
-    })
-    df['Color'] = pd.cut(df['Coverage'], bins=10, labels=False).astype(int)
-    df['Color'] = df['Color'].apply(lambda i: colorscale[i])
-    all_data.append(df)
+    coverage_values = np.random.randint(0, 101, size=len(date_range))
+    
+    for i, date in enumerate(date_range):
+        data.append({
+            'Sensor': sensor,
+            'Date': date,
+            'Coverage': coverage_values[i]
+        })
 
-df = pd.concat(all_data)
+df = pd.DataFrame(data)
 
-# Create initial empty figure
+# Bin coverage values into segments (e.g., every 10%)
+bin_size = 10
+df['Bin'] = (df['Coverage'] // bin_size) * bin_size
+
+# Group consecutive days with same bin value
+df['Group'] = (df['Bin'] != df.groupby('Sensor')['Bin'].shift()).cumsum()
+grouped = df.groupby(['Sensor', 'Group', 'Bin']).agg(
+    Start=('Date', 'min'),
+    End=('Date', 'max'),
+    Coverage=('Coverage', 'mean')  # average coverage for tooltip
+).reset_index()
+
+# Ensure end > start by adding 1 day
+grouped['End'] = grouped['End'] + pd.Timedelta(days=1)
+
+# Color scale from red (0%) to green (100%)
+import matplotlib.pyplot as plt
+cmap = plt.get_cmap("RdYlGn")
+
+def coverage_to_color(value):
+    rgba = cmap(value / 100)
+    return f"rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, {rgba[3]})"
+
+grouped['Color'] = grouped['Coverage'].apply(coverage_to_color)
+
+# Plot
 fig = go.Figure()
+sensors_seen = set()
 
-# Add traces per sensor
-for sensor in df['Sensor'].unique():
-    subdf = df[df['Sensor'] == sensor]
-    for _, row in subdf.iterrows():
-        fig.add_trace(go.Bar(
-            x=[(row['End'] - row['Start']).days],
-            y=[row['Sensor']],
-            base=row['Start'],
+for _, row in grouped.iterrows():
+    show_legend = row['Sensor'] not in sensors_seen
+    fig.add_trace(go.Bar(
+        x=[(row['End'] - row['Start']).days],
+        y=[row['Sensor']],
+        base=row['Start'],
+        orientation='h',
+        marker=dict(color=row['Color']),
+        hovertext=f"{row['Coverage']:.1f}%",
+        name=row['Sensor'],
+        showlegend=show_legend  # 👈 Only show sensor once in legend
+    ))
+    sensors_seen.add(row['Sensor'])
+
+fig.update_layout(
+    barmode='stack',
+    title='Sensor Coverage Timeline',
+    xaxis_title='Date',
+    yaxis_title='Sensor',
+    legend_title='Click to toggle sensors',
+    xaxis=dict(type='date')
+)
+
+fig.show()            base=row['Start'],
             orientation='h',
             marker=dict(color=row['Color']),
             hovertext=f"{row['Coverage']*100:.1f}%",
