@@ -1,40 +1,67 @@
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
+import plotly.express as px
 
-# Generate weekly timestamps for 2024
-date_range = pd.date_range(start='2024-01-01', end='2024-12-31', freq='7D')
+# Step 1: Generate daily coverage data
+np.random.seed(1)
+dates = pd.date_range(start="2024-01-01", end="2024-12-31", freq="D")
+coverage = np.random.uniform(0, 1, size=len(dates))  # Coverage as float between 0-1
 
-# Simulate random coverage values (0% to 100%)
-np.random.seed(42)
-coverage = np.random.uniform(0, 1, size=len(date_range))
-
-# Create DataFrame
 df = pd.DataFrame({
-    'Date': date_range,
-    'Coverage': coverage
+    "Date": dates,
+    "Coverage": coverage
 })
 
-# Duplicate last row to extend to end of time (so we can "fill" till end of year)
-df = pd.concat([
-    df,
-    pd.DataFrame({'Date': [pd.Timestamp('2025-01-01')], 'Coverage': [coverage[-1]]})
-], ignore_index=True)
+# Step 2: Bin coverage into thresholds
+def coverage_label(c):
+    if c < 0.5:
+        return "Low (<50%)"
+    elif c < 0.7:
+        return "Medium (50–70%)"
+    else:
+        return "High (>70%)"
 
-# Create a step-like filled area plot
-fig = go.Figure()
+df["CoverageLabel"] = df["Coverage"].apply(coverage_label)
 
-fig.add_trace(go.Scatter(
-    x=df['Date'],
-    y=df['Coverage'] * 100,  # convert to percent
-    mode='lines',
-    line=dict(shape='hv', width=0),  # horizontal-vertical (step)
-    fill='tozeroy',
-    fillcolor='rgba(0, 128, 0, 0.6)',
-    name='Sensor A',
-    hovertemplate='Date: %{x}<br>Coverage: %{y:.1f}%<extra></extra>'
-))
+# Step 3: Group consecutive days with same label into blocks
+df["Group"] = (df["CoverageLabel"] != df["CoverageLabel"].shift()).cumsum()
 
+grouped = df.groupby("Group").agg({
+    "Date": ["first", "last"],
+    "Coverage": "mean",
+    "CoverageLabel": "first"
+}).reset_index(drop=True)
+
+grouped.columns = ["Start", "End", "AvgCoverage", "CoverageLabel"]
+grouped["Sensor"] = "Sensor A"
+
+# Step 4: Create timeline
+fig = px.timeline(
+    grouped,
+    x_start="Start",
+    x_end="End",
+    y="Sensor",
+    color="CoverageLabel",
+    color_discrete_map={
+        "Low (<50%)": "red",
+        "Medium (50–70%)": "orange",
+        "High (>70%)": "green"
+    },
+    hover_data={"AvgCoverage": ":.0%"},  # show average coverage of block
+    title="Sensor A Coverage Timeline (2024)"
+)
+
+# Optional layout tweaks
+fig.update_yaxes(autorange="reversed")  # Gantt-style
+fig.update_layout(
+    height=300,
+    xaxis_title="Date",
+    yaxis_title="",
+    bargap=0.1,
+    margin=dict(l=20, r=20, t=40, b=40)
+)
+
+fig.show()
 # Optional: Add a line on top of fill
 fig.add_trace(go.Scatter(
     x=df['Date'],
