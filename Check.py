@@ -1,40 +1,62 @@
 import pandas as pd
-import plotly.express as px
 import numpy as np
-from datetime import datetime, timedelta
-import random
+import plotly.graph_objects as go
 
-# Seed for reproducibility
-random.seed(42)
+# Generate weekly timestamps for 2024
+date_range = pd.date_range(start='2024-01-01', end='2024-12-31', freq='7D')
+
+# Simulate random coverage values (0% to 100%)
 np.random.seed(42)
+coverage = np.random.uniform(0, 1, size=len(date_range))
 
-# Parameters
-sensors = [f"Sensor {chr(65+i)}" for i in range(10)]  # Sensor A to J
-start_date = datetime(2024, 1, 1)
-end_date = datetime(2024, 12, 31)
-num_periods_per_sensor = 5
+# Create DataFrame
+df = pd.DataFrame({
+    'Date': date_range,
+    'Coverage': coverage
+})
 
-data = []
+# Duplicate last row to extend to end of time (so we can "fill" till end of year)
+df = pd.concat([
+    df,
+    pd.DataFrame({'Date': [pd.Timestamp('2025-01-01')], 'Coverage': [coverage[-1]]})
+], ignore_index=True)
 
-for sensor in sensors:
-    for _ in range(num_periods_per_sensor):
-        # Random start between Jan and Dec
-        period_start = start_date + timedelta(days=random.randint(0, 330))
-        # Random duration (5–30 days)
-        duration = timedelta(days=random.randint(5, 30))
-        period_end = period_start + duration
-        # Clip to max year end
-        period_end = min(period_end, end_date)
-        # Random coverage between 30% and 100%
-        coverage = round(np.random.uniform(0.3, 1.0), 2)
+# Create a step-like filled area plot
+fig = go.Figure()
 
-        data.append({
-            'Sensor': sensor,
-            'Start': period_start,
-            'End': period_end,
-            'Coverage': coverage
-        })
+fig.add_trace(go.Scatter(
+    x=df['Date'],
+    y=df['Coverage'] * 100,  # convert to percent
+    mode='lines',
+    line=dict(shape='hv', width=0),  # horizontal-vertical (step)
+    fill='tozeroy',
+    fillcolor='rgba(0, 128, 0, 0.6)',
+    name='Sensor A',
+    hovertemplate='Date: %{x}<br>Coverage: %{y:.1f}%<extra></extra>'
+))
 
+# Optional: Add a line on top of fill
+fig.add_trace(go.Scatter(
+    x=df['Date'],
+    y=df['Coverage'] * 100,
+    mode='lines',
+    line=dict(shape='hv', color='darkgreen', width=2),
+    name='',
+    hoverinfo='skip',
+    showlegend=False
+))
+
+# Layout
+fig.update_layout(
+    title='Sensor A Coverage Over Time (Weekly)',
+    yaxis_title='Coverage (%)',
+    xaxis_title='Date',
+    yaxis_range=[0, 100],
+    height=400,
+    plot_bgcolor='white'
+)
+
+fig.show()
 df = pd.DataFrame(data)
 
 # Assign color by threshold
