@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Data Quality Report</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Bootstrap -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  
+  <!-- Tabulator -->
+  <link href="https://unpkg.com/tabulator-tables@5.4.4/dist/css/tabulator.min.css" rel="stylesheet">
+
+  <style>
+    body {
+      padding-left: 240px;
+    }
+    .sidebar {
+      width: 240px;
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100%;
+      background: #343a40;
+      color: white;
+      padding-top: 60px;
+    }
+    .sidebar a {
+      color: #ccc;
+      display: block;
+      padding: 10px 20px;
+      text-decoration: none;
+    }
+    .sidebar a:hover {
+      background: #495057;
+      color: white;
+    }
+    header, footer {
+      background: #f8f9fa;
+      padding: 10px 20px;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+    }
+    footer {
+      position: static;
+      bottom: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <h5 class="text-white text-center">Report Menu</h5>
+    <a href="#input">Input Parameters</a>
+    <a href="#summary">Summary Table</a>
+    <a href="#insights">Insights</a>
+  </div>
+
+  <!-- Header -->
+  <header class="border-bottom">
+    <h4>Data Quality Report</h4>
+    <small>Generated for {{ plant }} | {{ report_generated_date }}</small>
+  </header>
+
+  <!-- Main Content -->
+  <main class="container-fluid mt-4">
+
+    <!-- Input Parameters Card -->
+    <div id="input" class="card mb-4">
+      <div class="card-header bg-primary text-white">
+        <i class="bi bi-sliders"></i> Input Parameters
+      </div>
+      <div class="card-body">
+        <p><strong>Date Range:</strong> {{ date_range }}</p>
+        <p><strong>Sampling Frequency:</strong> {{ sampling_frequency }}</p>
+        <p><strong>User:</strong> {{ user }} | <strong>Version:</strong> {{ version }} | <strong>Time Taken:</strong> {{ time_taken }}</p>
+
+        <p><strong>Sensors:</strong></p>
+        <ul>
+          {% for group, items in sensors.items() %}
+          <li><strong>{{ group }}</strong>: {{ items | join(', ') }}</li>
+          {% endfor %}
+        </ul>
+
+        <p><strong>Quality Checks:</strong></p>
+        <ul>
+          {% for check in quality_checks %}
+            <li>
+              {% if check.used %}
+                ✅ <strong>{{ check.name }}</strong>: {{ check.description }}
+              {% else %}
+                ❌ <strong>{{ check.name }}</strong>: {{ check.description }}
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <!-- Summary Card with Tabulator -->
+    <div id="summary" class="card mb-4">
+      <div class="card-header bg-success text-white">
+        <i class="bi bi-table"></i> Summary Table
+      </div>
+      <div class="card-body">
+        <div id="summary-table"></div>
+      </div>
+    </div>
+
+    <!-- Insights Card with Plotly -->
+    <div id="insights" class="card mb-4">
+      <div class="card-header bg-info text-white">
+        <i class="bi bi-bar-chart-line"></i> Insights
+      </div>
+      <div class="card-body">
+        {% for chart in plotly_charts %}
+          <div id="chart-{{ loop.index }}" class="mb-4"></div>
+        {% endfor %}
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-top text-center">
+    <small>&copy; {{ year }} Data Quality Dashboard</small>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://unpkg.com/tabulator-tables@5.4.4/dist/js/tabulator.min.js"></script>
+
+  <!-- Tabulator Table Setup -->
+  <script>
+    const tableData = {{ summary_table_data | tojson }};
+    const tableCols = {{ summary_table_columns | tojson }};
+
+    new Tabulator("#summary-table", {
+      data: tableData,
+      columns: tableCols,
+      layout: "fitColumns",
+      height: "400px",
+    });
+  </script>
+
+  <!-- Plotly Charts -->
+  <script>
+    const plotlyCharts = {{ plotly_charts | tojson }};
+    plotlyCharts.forEach((chart, i) => {
+      Plotly.newPlot("chart-" + (i + 1), chart.data, chart.layout);
+    });
+  </script>
+</body>
+</html>
