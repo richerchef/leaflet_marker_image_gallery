@@ -1,0 +1,100 @@
+<!DOCTYPE html><html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sensor Coverage Table</title>
+  <link href="https://unpkg.com/tabulator-tables@5.4.4/dist/css/tabulator.min.css" rel="stylesheet">
+  <style>
+    .progress-bar {
+      height: 20px;
+      border-radius: 5px;
+      background: #eee;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      text-align: center;
+      color: white;
+      font-size: 12px;
+      line-height: 20px;
+    }
+    .green { background-color: #4caf50; }
+    .yellow { background-color: #ffc107; }
+    .red { background-color: #f44336; }
+  </style>
+</head>
+<body>
+  <h2>Sensor Coverage Dashboard</h2>
+  <div id="sensor-table"></div>  <script src="https://unpkg.com/tabulator-tables@5.4.4/dist/js/tabulator.min.js"></script>  <script>
+    function getBarColor(value) {
+      if (value >= 80) return "green";
+      if (value >= 50) return "yellow";
+      return "red";
+    }
+
+    const table = new Tabulator("#sensor-table", {
+      dataTree: true,
+      dataTreeStartExpanded: false,
+      layout: "fitColumns",
+      height: "500px",
+      columns: [
+        { title: "Sensor Name", field: "name", width: 200 },
+        { title: "Alt Name", field: "alt_name", width: 150 },
+        { title: "Type", field: "type", width: 100 },
+        {
+          title: "% Coverage",
+          field: "coverage",
+          formatter: "plaintext",
+          hozAlign: "center",
+          width: 120
+        },
+        {
+          title: "Progress",
+          field: "coverage",
+          formatter: function(cell) {
+            const value = cell.getValue();
+            const color = getBarColor(value);
+            return `
+              <div class='progress-bar'>
+                <div class='progress-fill ${color}' style='width: ${value}%;'>${value}%</div>
+              </div>`;
+          },
+        },
+      ],
+      data: [
+        {
+          name: "All Sensors",
+          type: "",
+          alt_name: "",
+          coverage: 76,
+          _children: [
+            {
+              name: "Sensor 1",
+              alt_name: "S1",
+              type: "AN",
+              coverage: 85,
+            },
+            {
+              name: "Sensor 2",
+              alt_name: "S2",
+              type: "DI",
+              coverage: 63,
+            },
+            {
+              name: "Sensor 3",
+              alt_name: "S3",
+              type: "AN",
+              coverage: 49,
+            },
+            {
+              name: "Sensor 4",
+              alt_name: "S4",
+              type: "DI",
+              coverage: 88,
+            },
+          ]
+        }
+      ]
+    });
+  </script></body>
+</html>
