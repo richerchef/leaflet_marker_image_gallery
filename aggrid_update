@@ -1,0 +1,465 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AG Grid with Leaflet</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-grid.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-alpine.css" />
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #pageHeader {
+  height: 50px;
+  background: #2c3e50;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* space between left, center, right */
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+
+#headerLeft h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+#headerCenter {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  max-width: 600px;
+  gap: 10px; /* space between search and row count */
+}
+
+#headerCenter input {
+  flex: 1;      /* search bar takes remaining space */
+  min-width: 150px; /* prevent it from being too small */
+  padding: 6px;
+  font-size: 14px;
+  text-align: center;
+}
+
+#headerRight {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+    #searchBox {
+      flex: 1;
+      max-width: 600px;
+    }
+    #searchInput {
+      width: 100%;
+      padding: 6px;
+      font-size: 14px;
+    }
+    #container { flex: 1; display: flex; overflow: hidden; }
+    #sidebar {
+      width: 30%;
+      max-width: 500px;
+      min-width: 200px;
+      background: #f9f9f9;
+      border-right: 1px solid #ccc;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    #map { flex-grow: 1; }
+    #myGrid { flex-grow: 1; height: 100%; }
+
+    #columnToggle {
+      padding: 5px;
+      border-bottom: 1px solid #ccc;
+    }
+    #columnToggle label {
+      display: block;
+    }
+    #columnToggle .collapsible {
+      background-color: #eee;
+      cursor: pointer;
+      padding: 10px;
+      width: 100%;
+      border: none;
+      text-align: left;
+      outline: none;
+      font-size: 16px;
+    }
+    #columnToggle .active, #columnToggle .collapsible:hover {
+      background-color: #ccc;
+    }
+    #columnToggle .content {
+      padding: 0 10px;
+      display: none;
+      overflow: hidden;
+    }
+
+
+    footer {
+      height: 30px;
+      background-color: #2c3e50;
+      color: white;
+      text-align: center;
+      line-height: 30px;
+      flex-shrink: 0;
+    }
+    #sidebar-resizer {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 6px;
+      height: 100%;
+      cursor: ew-resize;
+      background: transparent;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+<header id="pageHeader">
+  <div id="headerLeft">
+    <h1>Map Viewer</h1>
+  </div>
+  <div id="headerCenter">
+    <input type="text" id="searchInput" placeholder="Search..." list="autocomplete" />
+    <span id="rowCount">Rows: 0</span>
+    <datalist id="autocomplete"></datalist>
+  </div>
+  <div id="headerRight">
+    <label><input type="checkbox" id="toggleCluster" /> Cluster</label>
+    <button onclick="exportToCSV()">Export</button>
+  </div>
+</header>
+
+<div id="container">
+  <div id="sidebar">
+      <div id="columnToggle">
+    <button type="button" class="collapsible">Toggle Columns</button>
+    <div class="content" id="columnContent"></div>
+  </div>
+    <div id="myGrid" class="ag-theme-alpine"></div>
+    <div id="sidebar-resizer"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<footer>
+<select id="datasetSelect">
+  <option value="1">Dataset 1</option>
+  <option value="2">Dataset 2</option>
+  <option value="3">Dataset 3</option>
+</select>
+
+</footer>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-community@29.3.3/dist/ag-grid-community.min.js"></script>
+<script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<script>
+
+const datasets = {
+  "1": { coord: "coordinates.csv", data: "data.csv", image: "image1.png" },
+  "2": { coord: "coordinates.csv", data: "data1.csv", image: "image2.jpg" },
+  "3": { coord: "coordinates.csv", data: "data3.csv", image: "image3.png" }
+};
+
+
+
+const map = L.map('map', { crs: L.CRS.Simple, minZoom: -2, maxZoom: 2 });
+const bounds = [[0, 0], [1000, 2000]];
+const initialDataset = document.getElementById('datasetSelect').value.split('|');
+window.currentOverlay = L.imageOverlay(initialDataset[2] || 'image1.png', bounds).addTo(map);
+map.setView([0, 0], 2);
+
+// restore lat/lng/zoom from URL
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.has('lat') && urlParams.has('lng') && urlParams.has('zoom')) {
+  map.setView([parseFloat(urlParams.get('lat')), parseFloat(urlParams.get('lng'))], parseInt(urlParams.get('zoom')));
+}
+
+// update URL when moving/zooming
+map.on('moveend zoomend', () => {
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+  const params = new URLSearchParams(window.location.search);
+  params.set('lat', center.lat.toFixed(5));
+  params.set('lng', center.lng.toFixed(5));
+  params.set('zoom', zoom);
+  history.replaceState(null, '', '?' + params.toString());
+});
+
+let useClustering = false; // start unchecked
+const markerClusterGroup = L.markerClusterGroup();
+const markerLayerGroup = L.layerGroup();
+map.addLayer(markerLayerGroup);
+
+document.getElementById('toggleCluster').addEventListener('change', e => {
+  useClustering = e.target.checked;
+  updateVisibleMarkers();
+});
+
+// search bar
+document.getElementById('searchInput').addEventListener('input', e => {
+  const value = e.target.value.toLowerCase();
+  gridOptions.api.setQuickFilter(value);
+});
+
+// keyboard shortcut: press 's' → focus search
+document.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 's' && !e.target.matches('input, textarea')) {
+    e.preventDefault();
+    document.getElementById('searchInput').focus();
+  }
+});
+
+// ag-grid
+let gridOptions = {
+  columnDefs: [],
+  rowData: [],
+  animateRows: true,
+  rowSelection: 'single',
+  defaultColDef: { flex: 1, minWidth: 100, filter: true, resizable: true, sortable: true },
+  onRowClicked: event => {
+    const marker = event.data._marker;
+    if (marker) {
+      map.flyTo(marker.getLatLng(), 2);
+      marker.openPopup();
+    }
+  },
+  onFilterChanged: () => {
+    updateVisibleMarkers();
+    document.getElementById('rowCount').textContent = `Rows: ${gridOptions.api.getDisplayedRowCount()}`;
+  },
+  onFirstDataRendered: params => params.api.sizeColumnsToFit(),
+  onGridSizeChanged: params => params.api.sizeColumnsToFit(),
+};
+new agGrid.Grid(document.querySelector('#myGrid'), gridOptions);
+
+document.querySelector('.collapsible').addEventListener('click', function () {
+  this.classList.toggle('active');
+  const content = this.nextElementSibling;
+  content.style.display = content.style.display === 'block' ? 'none' : 'block';
+});
+
+let markers = [];
+
+function loadAndMergeCSVs(coordFile, dataFile) {
+  Papa.parse(coordFile, {
+    download: true, header: true, skipEmptyLines: true,
+    complete: coordResults => {
+      Papa.parse(dataFile, {
+        download: true, header: true, skipEmptyLines: true,
+        complete: dataResults => setupGridAndMarkers(coordResults.data, dataResults.data)
+      });
+    }
+  });
+}
+
+function setupGridAndMarkers(coordData, dataRows) {
+  gridOptions.api.setRowData([]);
+  markerClusterGroup.clearLayers();
+  markerLayerGroup.clearLayers();
+  markers = [];
+
+  const coordList = coordData.map(r => ({ label: r.label, x: parseFloat(r.x), y: parseFloat(r.y) }));
+  const rowData = [];
+  const autocompleteSet = new Set();
+
+  dataRows.forEach(row => {
+    const coords = coordList.filter(c => c.label === row.label);
+    coords.forEach(coord => {
+      row.x = coord.x;
+      row.y = coord.y;
+
+    // --- determine color based on type ---
+    let color = 'steelblue'; // default
+    if(row.type === 'Motor') color = 'red';
+    else if(row.type === 'Valve') color = 'green';
+
+      const marker = L.circleMarker([coord.y, coord.x], {
+        radius: 8, fillColor: color, color: "black", weight: 1,
+        opacity: 0.8, fillOpacity: 0.7
+      });
+
+      marker.bindTooltip(row.label);
+      let popup = `<b>${row.label}</b><br>`;
+      Object.entries(row).forEach(([k,v]) => { if(!k.startsWith('_')) popup+=`${k}: ${v}<br>`; });
+      marker.bindPopup(popup);
+
+      marker.on('click', () => {
+        gridOptions.api.forEachNode(node => {
+          if (node.data === row) {
+            node.setSelected(true);
+            gridOptions.api.ensureNodeVisible(node);
+          }
+        });
+        map.flyTo(marker.getLatLng(), 0);
+      });
+
+      row._marker = marker;
+      rowData.push({...row}); 
+      markers.push(marker);
+      Object.values(row).forEach(v => v && autocompleteSet.add(v));
+    });
+  });
+
+  // --- Column definitions ---
+const colDefs = Object.keys(rowData[0] || {}).filter(f => !f.startsWith('_')).map(f => {
+  if(f === 'type'){  // make sure this matches your CSV column name
+    return {
+      field: f,
+      cellRenderer: params => {
+        const color = params.data._marker?.options.fillColor || 'gray';
+        const text = params.value || '';
+        return `<span style="display:flex; align-items:center;">
+                  <span style="width:12px; height:12px; border-radius:50%; background-color:${color}; display:inline-block; margin-right:5px;"></span>
+                  ${text}
+                </span>`;
+      }
+    };
+  } else {
+    return { field: f,
+      hide: f === 'x' || f === 'y'
+     };
+  }
+});
+
+
+  gridOptions.api.setColumnDefs(colDefs);
+  gridOptions.api.setRowData(rowData);
+
+  // --- Build column toggle UI ---
+  const toggleContainer = document.getElementById('columnContent');
+  toggleContainer.innerHTML = '';
+  colDefs.forEach(colDef => {
+    if (colDef.field === 'x' || colDef.field === 'y') return; // skip x and y
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !colDef.hide;
+    checkbox.addEventListener('change', () => {
+      gridOptions.columnApi.setColumnVisible(colDef.field, checkbox.checked);
+    });
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(' ' + colDef.field));
+    toggleContainer.appendChild(label);
+  });
+
+  // --- Autocomplete update ---
+  const datalist = document.getElementById('autocomplete');
+  datalist.innerHTML = '';
+  autocompleteSet.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v;
+    datalist.appendChild(opt);
+  });
+
+  document.getElementById('rowCount').textContent = `Rows: ${rowData.length}`;
+  updateVisibleMarkers();
+}
+
+
+function updateVisibleMarkers() {
+  markerClusterGroup.clearLayers();
+  markerLayerGroup.clearLayers();
+  gridOptions.api.forEachNodeAfterFilter(node => {
+    const marker = node.data._marker;
+    if (marker) {
+      (useClustering ? markerClusterGroup : markerLayerGroup).addLayer(marker);
+    }
+  });
+  if (useClustering) {
+    map.addLayer(markerClusterGroup);
+    map.removeLayer(markerLayerGroup);
+  } else {
+    map.addLayer(markerLayerGroup);
+    map.removeLayer(markerClusterGroup);
+  }
+}
+
+function exportToCSV() {
+  gridOptions.api.exportDataAsCsv();
+}
+
+
+document.getElementById('datasetSelect').addEventListener('change', e => {
+  const datasetId = e.target.value;
+  const ds = datasets[datasetId];
+
+  if (!ds) return;
+
+  // remove previous overlay if present
+  if (window.currentOverlay) map.removeLayer(window.currentOverlay);
+
+  // add new image overlay
+  window.currentOverlay = L.imageOverlay(ds.image, bounds).addTo(map);
+
+  // load CSVs
+  loadAndMergeCSVs(ds.coord, ds.data);
+
+  // update URL with dataset selection (only the ID now)
+  const params = new URLSearchParams(window.location.search);
+  params.set('dataset', datasetId);
+  history.replaceState(null, '', '?' + params.toString());
+});
+
+
+
+
+const datasetSelect = document.getElementById('datasetSelect');
+const params = new URLSearchParams(window.location.search);
+let datasetId = params.get('dataset') || datasetSelect.value;
+
+if (!datasets[datasetId]) {
+  datasetId = "1"; // default fallback
+}
+
+datasetSelect.value = datasetId;
+const ds = datasets[datasetId];
+
+// remove old overlay if exists
+if (window.currentOverlay) map.removeLayer(window.currentOverlay);
+window.currentOverlay = L.imageOverlay(ds.image, bounds).addTo(map);
+
+loadAndMergeCSVs(ds.coord, ds.data);
+
+// update URL if missing
+if (!params.has('dataset')) {
+  params.set('dataset', datasetId);
+  history.replaceState(null, '', '?' + params.toString());
+}
+
+
+
+// sidebar resizer
+const sidebar = document.getElementById('sidebar');
+const resizer = document.getElementById('sidebar-resizer');
+const container = document.getElementById('container');
+let isResizing = false;
+resizer.addEventListener('mousedown', e => { isResizing = true; document.body.style.cursor='ew-resize'; });
+document.addEventListener('mousemove', e => {
+  if (!isResizing) return;
+  const containerRect = container.getBoundingClientRect();
+  let newWidth = e.clientX - containerRect.left;
+  if (newWidth < 200) newWidth = 200;
+  if (newWidth > 500) newWidth = 500;
+  sidebar.style.width = newWidth+'px';
+});
+document.addEventListener('mouseup', e => { isResizing=false; document.body.style.cursor=''; });
+</script>
+</body>
+</html>
