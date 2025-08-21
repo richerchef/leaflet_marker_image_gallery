@@ -386,8 +386,16 @@ function setupGridAndMarkers(coordData, dataRows) {
       });
 
       marker.bindTooltip(row.label);
-      let popup = `<b>${row.label}</b><br>`;
-      Object.entries(row).forEach(([k,v]) => { if(!k.startsWith('_')) popup+=`${k}: ${v}<br>`; });
+      let popup = `<b style="font-size:1.1em;">${row.label}</b>`;
+      let tableRows = '';
+      Object.entries(row).forEach(([k, v]) => {
+        if (!k.startsWith('_') && k !== 'label' && v != null && v !== '') {
+          tableRows += `<tr><td style="font-weight:bold;padding:2px 8px 2px 0;">${k}</td><td style="padding:2px 0;">${v}</td></tr>`;
+        }
+      });
+      if (tableRows) {
+        popup += `<table style="margin-top:6px;font-size:0.95em;">${tableRows}</table>`;
+      }
       marker.bindPopup(popup);
 
       marker.on('click', () => {
