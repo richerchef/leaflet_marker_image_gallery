@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -76,6 +75,12 @@
       flex-direction: column;
       overflow: hidden;
       position: relative;
+      transition: width 0.5s;
+    }
+    #sidebar.minimized {
+      width: 0 !important;
+      min-width: 0 !important;
+      border-right: none;
     }
     #map { flex-grow: 1; }
     #myGrid { flex-grow: 1; height: 100%; }
@@ -102,8 +107,13 @@
     }
     #columnToggle .content {
       padding: 0 10px;
-      display: none;
+      max-height: 0;
       overflow: hidden;
+      transition: max-height 1s cubic-bezier(0.4,0,0.2,1);
+    }
+    #columnToggle .content.open {
+      /* Large enough to fit all content */
+      max-height: 400px;
     }
 
 
@@ -119,17 +129,73 @@
       position: absolute;
       top: 0;
       right: 0;
-      width: 6px;
+      width: 12px; /* wider for easier grabbing */
       height: 100%;
       cursor: ew-resize;
-      background: transparent;
-      z-index: 10;
+      background: rgba(220,220,220,0.85); /* opaque for usability */
+      z-index: 2;
+      transition: background 0.2s;
     }
+    #sidebar.minimized #sidebar-resizer {
+      display: none;
+    }
+    #myGrid {
+      flex-grow: 1;
+      height: 100%;
+      min-width: 0;
+      padding-right: 14px; /* Add space for the resizer */
+      box-sizing: border-box;
+    }
+    /* Sidebar toggle button in header */
+    #sidebarToggleBtn {
+      background: #34495e;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 18px;
+      width: 36px;
+      height: 36px;
+      cursor: pointer;
+      margin-right: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    #sidebarToggleBtn:hover {
+      background: #22313a;
+    }
+    /* Make sure headerLeft is flex for button alignment */
+    #headerLeft {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #sidebarToggleIcon {
+  display: inline-block;
+  transition: transform 1s;
+  font-size: 22px;
+}
+#sidebarToggleIcon.flipped {
+  transform: scaleX(-1);
+}
+
+    body.resizing,
+body.resizing * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+}
   </style>
 </head>
 <body>
 <header id="pageHeader">
   <div id="headerLeft">
+    <button id="sidebarToggleBtn" title="Toggle sidebar">
+      <span id="sidebarToggleIcon">&#x25B6;</span>
+    </button>
     <h1>Map Viewer</h1>
   </div>
   <div id="headerCenter">
@@ -170,28 +236,27 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
 <script>
-
+// --- DATASET CONFIGURATION ---
 const datasets = {
   "1": { coord: "coordinates.csv", data: "data.csv", image: "image1.png" },
   "2": { coord: "coordinates.csv", data: "data1.csv", image: "image2.jpg" },
   "3": { coord: "coordinates.csv", data: "data3.csv", image: "image3.png" }
 };
 
-
-
+// --- MAP INITIALIZATION ---
 const map = L.map('map', { crs: L.CRS.Simple, minZoom: -2, maxZoom: 2 });
 const bounds = [[0, 0], [1000, 2000]];
 const initialDataset = document.getElementById('datasetSelect').value.split('|');
 window.currentOverlay = L.imageOverlay(initialDataset[2] || 'image1.png', bounds).addTo(map);
 map.setView([0, 0], 2);
 
-// restore lat/lng/zoom from URL
+// --- RESTORE MAP VIEW FROM URL ---
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.has('lat') && urlParams.has('lng') && urlParams.has('zoom')) {
   map.setView([parseFloat(urlParams.get('lat')), parseFloat(urlParams.get('lng'))], parseInt(urlParams.get('zoom')));
 }
 
-// update URL when moving/zooming
+// --- UPDATE URL WHEN MAP MOVES/ZOOMS ---
 map.on('moveend zoomend', () => {
   const center = map.getCenter();
   const zoom = map.getZoom();
@@ -202,31 +267,42 @@ map.on('moveend zoomend', () => {
   history.replaceState(null, '', '?' + params.toString());
 });
 
+// --- MARKER GROUPS ---
 let useClustering = false; // start unchecked
 const markerClusterGroup = L.markerClusterGroup();
 const markerLayerGroup = L.layerGroup();
 map.addLayer(markerLayerGroup);
 
+// --- CLUSTER TOGGLE HANDLER ---
 document.getElementById('toggleCluster').addEventListener('change', e => {
   useClustering = e.target.checked;
   updateVisibleMarkers();
 });
 
-// search bar
-document.getElementById('searchInput').addEventListener('input', e => {
+// --- SEARCH BAR HANDLER ---
+const searchInput = document.getElementById('searchInput');
+searchInput.addEventListener('input', e => {
   const value = e.target.value.toLowerCase();
   gridOptions.api.setQuickFilter(value);
 });
 
-// keyboard shortcut: press 's' → focus search
+// --- KEYBOARD SHORTCUTS: FOCUS SEARCH BAR AND TOGGLE SIDEBAR ---
 document.addEventListener('keydown', e => {
-  if (e.key.toLowerCase() === 's' && !e.target.matches('input, textarea')) {
+  // Press 'F' to focus search bar (unless already in input/textarea)
+  if (e.key.toLowerCase() === 'f' && !e.target.matches('input, textarea')) {
     e.preventDefault();
     document.getElementById('searchInput').focus();
   }
+  // Press 'S' to toggle sidebar (unless already in input/textarea)
+  if (e.key.toLowerCase() === 's' && !e.target.matches('input, textarea')) {
+    e.preventDefault();
+    sidebar.classList.toggle('minimized');
+    localStorage.setItem('sidebarMinimized', sidebar.classList.contains('minimized') ? '1' : '0');
+    updateSidebarToggleIcon();
+  }
 });
 
-// ag-grid
+// --- AG-GRID INITIALIZATION ---
 let gridOptions = {
   columnDefs: [],
   rowData: [],
@@ -234,6 +310,7 @@ let gridOptions = {
   rowSelection: 'single',
   defaultColDef: { flex: 1, minWidth: 100, filter: true, resizable: true, sortable: true },
   onRowClicked: event => {
+    // Fly to marker and open popup when row clicked
     const marker = event.data._marker;
     if (marker) {
       map.flyTo(marker.getLatLng(), 2);
@@ -241,6 +318,7 @@ let gridOptions = {
     }
   },
   onFilterChanged: () => {
+    // Update markers and row count on filter
     updateVisibleMarkers();
     document.getElementById('rowCount').textContent = `Rows: ${gridOptions.api.getDisplayedRowCount()}`;
   },
@@ -249,14 +327,20 @@ let gridOptions = {
 };
 new agGrid.Grid(document.querySelector('#myGrid'), gridOptions);
 
+// --- COLUMN TOGGLE COLLAPSIBLE HANDLER ---
 document.querySelector('.collapsible').addEventListener('click', function () {
   this.classList.toggle('active');
   const content = this.nextElementSibling;
-  content.style.display = content.style.display === 'block' ? 'none' : 'block';
+  content.classList.toggle('open');
 });
 
 let markers = [];
 
+/**
+ * Loads and merges coordinate and data CSVs, then sets up grid and markers.
+ * @param {string} coordFile - Path to coordinates CSV.
+ * @param {string} dataFile - Path to data CSV.
+ */
 function loadAndMergeCSVs(coordFile, dataFile) {
   Papa.parse(coordFile, {
     download: true, header: true, skipEmptyLines: true,
@@ -269,6 +353,11 @@ function loadAndMergeCSVs(coordFile, dataFile) {
   });
 }
 
+/**
+ * Sets up ag-Grid and Leaflet markers from merged data.
+ * @param {Array} coordData - Array of coordinate objects.
+ * @param {Array} dataRows - Array of data objects.
+ */
 function setupGridAndMarkers(coordData, dataRows) {
   gridOptions.api.setRowData([]);
   markerClusterGroup.clearLayers();
@@ -285,11 +374,12 @@ function setupGridAndMarkers(coordData, dataRows) {
       row.x = coord.x;
       row.y = coord.y;
 
-    // --- determine color based on type ---
-    let color = 'steelblue'; // default
-    if(row.type === 'Motor') color = 'red';
-    else if(row.type === 'Valve') color = 'green';
+      // --- determine color based on type ---
+      let color = 'steelblue'; // default
+      if(row.type === 'Motor') color = 'red';
+      else if(row.type === 'Valve') color = 'green';
 
+      // Create marker for each row
       const marker = L.circleMarker([coord.y, coord.x], {
         radius: 8, fillColor: color, color: "black", weight: 1,
         opacity: 0.8, fillOpacity: 0.7
@@ -318,26 +408,23 @@ function setupGridAndMarkers(coordData, dataRows) {
   });
 
   // --- Column definitions ---
-const colDefs = Object.keys(rowData[0] || {}).filter(f => !f.startsWith('_')).map(f => {
-  if(f === 'type'){  // make sure this matches your CSV column name
-    return {
-      field: f,
-      cellRenderer: params => {
-        const color = params.data._marker?.options.fillColor || 'gray';
-        const text = params.value || '';
-        return `<span style="display:flex; align-items:center;">
-                  <span style="width:12px; height:12px; border-radius:50%; background-color:${color}; display:inline-block; margin-right:5px;"></span>
-                  ${text}
-                </span>`;
-      }
-    };
-  } else {
-    return { field: f,
-      hide: f === 'x' || f === 'y'
-     };
-  }
-});
-
+  const colDefs = Object.keys(rowData[0] || {}).filter(f => !f.startsWith('_')).map(f => {
+    if(f === 'type'){  // make sure this matches your CSV column name
+      return {
+        field: f,
+        cellRenderer: params => {
+          const color = params.data._marker?.options.fillColor || 'gray';
+          const text = params.value || '';
+          return `<span style="display:flex; align-items:center;">
+                    <span style="width:12px; height:12px; border-radius:50%; background-color:${color}; display:inline-block; margin-right:5px;"></span>
+                    ${text}
+                  </span>`;
+        }
+      };
+    } else {
+      return { field: f, hide: f === 'x' || f === 'y' };
+    }
+  });
 
   gridOptions.api.setColumnDefs(colDefs);
   gridOptions.api.setRowData(rowData);
@@ -372,7 +459,9 @@ const colDefs = Object.keys(rowData[0] || {}).filter(f => !f.startsWith('_')).ma
   updateVisibleMarkers();
 }
 
-
+/**
+ * Updates which markers are visible on the map based on grid filtering.
+ */
 function updateVisibleMarkers() {
   markerClusterGroup.clearLayers();
   markerLayerGroup.clearLayers();
@@ -391,11 +480,14 @@ function updateVisibleMarkers() {
   }
 }
 
+/**
+ * Exports the current grid data as CSV.
+ */
 function exportToCSV() {
   gridOptions.api.exportDataAsCsv();
 }
 
-
+// --- DATASET SELECTOR HANDLING ---
 document.getElementById('datasetSelect').addEventListener('change', e => {
   const datasetId = e.target.value;
   const ds = datasets[datasetId];
@@ -417,9 +509,7 @@ document.getElementById('datasetSelect').addEventListener('change', e => {
   history.replaceState(null, '', '?' + params.toString());
 });
 
-
-
-
+// --- INITIAL DATASET LOAD ---
 const datasetSelect = document.getElementById('datasetSelect');
 const params = new URLSearchParams(window.location.search);
 let datasetId = params.get('dataset') || datasetSelect.value;
@@ -443,23 +533,122 @@ if (!params.has('dataset')) {
   history.replaceState(null, '', '?' + params.toString());
 }
 
-
-
-// sidebar resizer
+// --- SIDEBAR RESIZER LOGIC ---
 const sidebar = document.getElementById('sidebar');
 const resizer = document.getElementById('sidebar-resizer');
 const container = document.getElementById('container');
 let isResizing = false;
-resizer.addEventListener('mousedown', e => { isResizing = true; document.body.style.cursor='ew-resize'; });
+
+// Restore sidebar width and status
+const savedWidth = localStorage.getItem('sidebarWidth');
+if (savedWidth) sidebar.style.width = savedWidth;
+const savedMinimized = localStorage.getItem('sidebarMinimized');
+if (savedMinimized === '1') sidebar.classList.add('minimized');
+else sidebar.classList.remove('minimized');
+
+// Handle sidebar resizing with mouse
+resizer.addEventListener('mousedown', e => {
+  isResizing = true;
+  document.body.style.cursor = 'ew-resize';
+  document.body.classList.add('resizing');
+  e.preventDefault(); // Prevents text selection
+});
 document.addEventListener('mousemove', e => {
   if (!isResizing) return;
   const containerRect = container.getBoundingClientRect();
   let newWidth = e.clientX - containerRect.left;
   if (newWidth < 200) newWidth = 200;
   if (newWidth > 500) newWidth = 500;
-  sidebar.style.width = newWidth+'px';
+  sidebar.style.width = newWidth + 'px';
 });
-document.addEventListener('mouseup', e => { isResizing=false; document.body.style.cursor=''; });
+document.addEventListener('mouseup', e => {
+  if (isResizing) {
+    isResizing = false;
+    document.body.style.cursor = '';
+    document.body.classList.remove('resizing');
+    // Save sidebar width
+    localStorage.setItem('sidebarWidth', sidebar.style.width);
+  }
+});
+
+// --- SIDEBAR TOGGLE LOGIC ---
+const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+const sidebarToggleIcon = document.getElementById('sidebarToggleIcon');
+
+function updateSidebarToggleIcon() {
+  sidebarToggleIcon.innerHTML = '&#x25B6;'; // Always use ▶
+  if (sidebar.classList.contains('minimized')) {
+    sidebarToggleIcon.classList.remove('flipped');
+  } else {
+    sidebarToggleIcon.classList.add('flipped');
+  }
+}
+
+// Initial icon state
+updateSidebarToggleIcon();
+
+sidebarToggleBtn.addEventListener('click', () => {
+  sidebar.classList.toggle('minimized');
+  // Save sidebar open/close status
+  localStorage.setItem('sidebarMinimized', sidebar.classList.contains('minimized') ? '1' : '0');
+  updateSidebarToggleIcon();
+});
+
+// --- RED PIN ICON DEFINITION FOR SEARCH RESULTS ---
+const redPinIcon = L.icon({
+  iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="48" viewBox="0 0 32 48"><path d="M16 0C8 0 0 6 0 16c0 10 16 32 16 32s16-22 16-32C32 6 24 0 16 0z" fill="red"/><circle cx="16" cy="16" r="7" fill="white"/></svg>',
+  iconSize: [32, 48],
+  iconAnchor: [16, 48],
+  popupAnchor: [0, -48]
+});
+
+let searchPins = [];
+let searchActive = false;
+
+/**
+ * Handles Enter key in search bar: highlights all filtered markers with red pins and zooms to fit.
+ * Prevents multiple Enter presses until pins are cleared.
+ */
+searchInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !searchActive) {
+    searchActive = true;
+
+    // Remove previous pins
+    searchPins.forEach(pin => map.removeLayer(pin));
+    searchPins = [];
+
+    // Get all visible rows
+    const nodes = [];
+    gridOptions.api.forEachNodeAfterFilterAndSort(node => nodes.push(node));
+
+    // Collect marker LatLngs and add red pins
+    const latlngs = [];
+    nodes.forEach(node => {
+      const marker = node.data._marker;
+      if (marker) {
+        const latlng = marker.getLatLng();
+        latlngs.push(latlng);
+        const pin = L.marker(latlng, { icon: redPinIcon, interactive: false });
+        pin.addTo(map);
+        searchPins.push(pin);
+      }
+    });
+
+    // Zoom to fit all pins if any
+    if (latlngs.length > 0) {
+      map.fitBounds(latlngs, { padding: [40, 40] });
+    }
+
+    // Remove pins after 5 seconds and allow Enter again
+    setTimeout(() => {
+      searchPins.forEach(pin => map.removeLayer(pin));
+      searchPins = [];
+      searchActive = false;
+    }, 5000);
+  }
+});
+
+
 </script>
 </body>
 </html>
