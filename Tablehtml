@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+table {
+  border-collapse: collapse;
+  width: 60%;
+  font-family: Arial, sans-serif;
+}
+th, td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: center;
+}
+th {
+  background-color: #f2f2f2;
+}
+tr:hover { background-color: #f9f9f9; }
+button { margin: 5px; }
+</style>
+</head>
+<body>
+
+<button onclick="toggleColumn(0)">Toggle Task</button>
+<button onclick="toggleColumn(1)">Toggle Completion</button>
+<button onclick="toggleColumn(2)">Toggle Progress</button>
+
+<table id="myTable">
+  <thead>
+    <tr>
+      <th>Task</th>
+      <th>Completion (%)</th>
+      <th>Progress</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Task A</td>
+      <td>75</td>
+      <td>
+        <div style="background-color:#ddd; width:100%; border-radius:5px;">
+          <div style="width:75%; background-color:#4CAF50; color:white; border-radius:5px;">75%</div>
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td>Task B</td>
+      <td>40</td>
+      <td>
+        <div style="background-color:#ddd; width:100%; border-radius:5px;">
+          <div style="width:40%; background-color:#f44336; color:white; border-radius:5px;">40%</div>
+        </div>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<script>
+function toggleColumn(colIndex) {
+    const table = document.getElementById("myTable");
+    const rows = table.rows;
+    for (let i = 0; i < rows.length; i++) {
+        const cell = rows[i].cells[colIndex];
+        if (cell.style.display === "none") {
+            cell.style.display = "";
+        } else {
+            cell.style.display = "none";
+        }
+    }
+}
+</script>
+
+</body>
+</html>
