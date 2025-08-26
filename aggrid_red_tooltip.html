@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AG Grid with Leaflet</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-grid.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-alpine.css" />
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #pageHeader {
+  height: 50px;
+  background: #2c3e50;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* space between left, center, right */
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+
+#headerLeft h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+#headerCenter {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  max-width: 600px;
+  gap: 10px; /* space between search and row count */
+}
+
+#headerCenter input {
+  flex: 1;      /* search bar takes remaining space */
+  min-width: 150px; /* prevent it from being too small */
+  padding: 6px;
+  font-size: 14px;
+  text-align: center;
+}
+
+#headerRight {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+    #searchBox {
+      flex: 1;
+      max-width: 600px;
+    }
+    #searchInput {
+      width: 100%;
+      padding: 6px;
+      font-size: 14px;
+    }
+    #container { flex: 1; display: flex; overflow: hidden; }
+    #sidebar {
+      width: 30%;
+      max-width: 500px;
+      min-width: 200px;
+      background: #f9f9f9;
+      border-right: 1px solid #ccc;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+      transition: width 0.5s;
+    }
+    #sidebar.minimized {
+      width: 0 !important;
+      min-width: 0 !important;
+      border-right: none;
+    }
+    #map { flex-grow: 1; }
+    #myGrid { flex-grow: 1; height: 100%; }
+
+    #columnToggle {
+      padding: 5px;
+      border-bottom: 1px solid #ccc;
+    }
+    #columnToggle label {
+      display: block;
+    }
+    #columnToggle .collapsible {
+      background-color: #eee;
+      cursor: pointer;
+      padding: 10px;
+      width: 100%;
+      border: none;
+      text-align: left;
+      outline: none;
+      font-size: 16px;
+    }
+    #columnToggle .active, #columnToggle .collapsible:hover {
+      background-color: #ccc;
+    }
+    #columnToggle .content {
+      padding: 0 10px;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 1s cubic-bezier(0.4,0,0.2,1);
+    }
+    #columnToggle .content.open {
+      /* Large enough to fit all content */
+      max-height: 400px;
+    }
+
+
+    footer {
+      height: 30px;
+      background-color: #2c3e50;
+      color: white;
+      text-align: center;
+      line-height: 30px;
+      flex-shrink: 0;
+    }
+    #sidebar-resizer {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 12px; /* wider for easier grabbing */
+      height: 100%;
+      cursor: ew-resize;
+      background: rgba(220,220,220,0.85); /* opaque for usability */
+      z-index: 2;
+      transition: background 0.2s;
+    }
+    #sidebar.minimized #sidebar-resizer {
+      display: none;
+    }
+    #myGrid {
+      flex-grow: 1;
+      height: 100%;
+      min-width: 0;
+      padding-right: 14px; /* Add space for the resizer */
+      box-sizing: border-box;
+    }
+    /* Sidebar toggle button in header */
+    #sidebarToggleBtn {
+      background: #34495e;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 18px;
+      width: 36px;
+      height: 36px;
+      cursor: pointer;
+      margin-right: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    #sidebarToggleBtn:hover {
+      background: #22313a;
+    }
+    /* Make sure headerLeft is flex for button alignment */
+    #headerLeft {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #sidebarToggleIcon {
+  display: inline-block;
+  transition: transform 1s;
+  font-size: 22px;
+}
+#sidebarToggleIcon.flipped {
+  transform: scaleX(-1);
+}
+
+    body.resizing,
+body.resizing * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+}
+#previewTooltip img {
+  display: block;
+  max-width: 180px;
+  max-height: 120px;
+  border-radius: 6px;
+}
+  </style>
+</head>
+<body>
+<header id="pageHeader">
+  <div id="headerLeft">
+    <button id="sidebarToggleBtn" title="Toggle sidebar">
+      <span id="sidebarToggleIcon">&#x25B6;</span>
+    </button>
+    <h1>Map Viewer</h1>
+  </div>
+  <div id="headerCenter">
+    <input type="text" id="searchInput" placeholder="Search..." list="autocomplete" />
+    <span id="rowCount">Rows: 0</span>
+    <datalist id="autocomplete"></datalist>
+  </div>
+  <div id="headerRight">
+    <label><input type="checkbox" id="toggleCluster" /> Cluster</label>
+    <button onclick="exportToCSV()">Export</button>
+  </div>
+</header>
+
+<div id="container">
+  <div id="sidebar">
+      <div id="columnToggle">
+    <button type="button" class="collapsible">Toggle Columns</button>
+    <div class="content" id="columnContent"></div>
+  </div>
+    <div id="myGrid" class="ag-theme-alpine"></div>
+    <div id="sidebar-resizer"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<footer>
+<select id="datasetSelect">
+  <option value="1">Dataset 1</option>
+  <option value="2">Dataset 2</option>
+  <option value="3">Dataset 3</option>
+</select>
+
+</footer>
+
+<div id="previewTooltip" style="display:none;position:fixed;z-index:9999;pointer-events:none;background:#fff;border:2px solid #333;border-radius:8px;box-shadow:0 4px 16px #0003;padding:4px;"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-community@29.3.3/dist/ag-grid-community.min.js"></script>
+<script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<script>
+// --- DATASET CONFIGURATION ---
+const datasets = {
+  "1": { coord: "coordinates.csv", data: "data.csv", image: "image1.png", markerRadius: 8, width: 2000, height: 1000 },
+  "2": { coord: "coordinates.csv", data: "data1.csv", image: "image2.jpg", markerRadius: 12, width: 1500, height: 900 },
+  "3": { coord: "coordinates.csv", data: "data3.csv", image: "image3.png", markerRadius: 16, width: 2500, height: 1200 }
+};
+
+// --- MAP INITIALIZATION ---
+let datasetSelect = document.getElementById('datasetSelect');
+let params = new URLSearchParams(window.location.search);
+let datasetId = params.get('dataset') || datasetSelect.value;
+if (!datasets[datasetId]) datasetId = "1";
+datasetSelect.value = datasetId;
+let ds = datasets[datasetId];
+
+// Set bounds based on dataset width/height
+let bounds = [[0, 0], [ds.height, ds.width]];
+
+const map = L.map('map', { crs: L.CRS.Simple, minZoom: -2, maxZoom: 2 });
+if (window.currentOverlay) map.removeLayer(window.currentOverlay);
+window.currentOverlay = L.imageOverlay(ds.image, bounds).addTo(map);
+map.setView([0, 0], 2);
+
+// --- RESTORE MAP VIEW FROM URL ---
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.has('lat') && urlParams.has('lng') && urlParams.has('zoom')) {
+  map.setView([parseFloat(urlParams.get('lat')), parseFloat(urlParams.get('lng'))], parseInt(urlParams.get('zoom')));
+}
+
+// --- UPDATE URL WHEN MAP MOVES/ZOOMS ---
+map.on('moveend zoomend', () => {
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+  const params = new URLSearchParams(window.location.search);
+  params.set('lat', center.lat.toFixed(5));
+  params.set('lng', center.lng.toFixed(5));
+  params.set('zoom', zoom);
+  history.replaceState(null, '', '?' + params.toString());
+});
+
+// --- MARKER GROUPS ---
+let useClustering = false; // start unchecked
+const markerClusterGroup = L.markerClusterGroup();
+const markerLayerGroup = L.layerGroup();
+map.addLayer(markerLayerGroup);
+
+// --- CLUSTER TOGGLE HANDLER ---
+document.getElementById('toggleCluster').addEventListener('change', e => {
+  useClustering = e.target.checked;
+  updateVisibleMarkers();
+});
+
+// --- SEARCH BAR HANDLER ---
+const searchInput = document.getElementById('searchInput');
+searchInput.addEventListener('input', e => {
+  const value = e.target.value.toLowerCase();
+  gridOptions.api.setQuickFilter(value);
+});
+
+// --- KEYBOARD SHORTCUTS: FOCUS SEARCH BAR AND TOGGLE SIDEBAR ---
+document.addEventListener('keydown', e => {
+  // Press 'F' to focus search bar (unless already in input/textarea)
+  if (e.key.toLowerCase() === 'f' && !e.target.matches('input, textarea')) {
+    e.preventDefault();
+    document.getElementById('searchInput').focus();
+  }
+  // Press 'S' to toggle sidebar (unless already in input/textarea)
+  if (e.key.toLowerCase() === 's' && !e.target.matches('input, textarea')) {
+    e.preventDefault();
+    sidebar.classList.toggle('minimized');
+    localStorage.setItem('sidebarMinimized', sidebar.classList.contains('minimized') ? '1' : '0');
+    updateSidebarToggleIcon();
+  }
+});
+
+// --- AG-GRID INITIALIZATION ---
+let gridOptions = {
+  columnDefs: [],
+  rowData: [],
+  animateRows: true,
+  rowSelection: 'single',
+  defaultColDef: { flex: 1, minWidth: 100, filter: true, resizable: true, sortable: true },
+  onRowClicked: event => {
+    // Fly to marker and open popup when row clicked
+    const marker = event.data._marker;
+    if (marker) {
+      map.flyTo(marker.getLatLng(), 2);
+      marker.openPopup();
+    }
+  },
+  onFilterChanged: () => {
+    // Update markers and row count on filter
+    updateVisibleMarkers();
+    document.getElementById('rowCount').textContent = `Rows: ${gridOptions.api.getDisplayedRowCount()}`;
+  },
+  onFirstDataRendered: params => params.api.sizeColumnsToFit(),
+  onGridSizeChanged: params => params.api.sizeColumnsToFit(),
+};
+new agGrid.Grid(document.querySelector('#myGrid'), gridOptions);
+
+// --- COLUMN TOGGLE COLLAPSIBLE HANDLER ---
+document.querySelector('.collapsible').addEventListener('click', function () {
+  this.classList.toggle('active');
+  const content = this.nextElementSibling;
+  content.classList.toggle('open');
+});
+
+let markers = [];
+
+/**
+ * Loads and merges coordinate and data CSVs, then sets up grid and markers.
+ * @param {string} coordFile - Path to coordinates CSV.
+ * @param {string} dataFile - Path to data CSV.
+ */
+function loadAndMergeCSVs(coordFile, dataFile, markerRadius) {
+  Papa.parse(coordFile, {
+    download: true, header: true, skipEmptyLines: true,
+    complete: coordResults => {
+      Papa.parse(dataFile, {
+        download: true, header: true, skipEmptyLines: true,
+        complete: dataResults => setupGridAndMarkers(coordResults.data, dataResults.data, markerRadius)
+      });
+    }
+  });
+}
+
+/**
+ * Sets up ag-Grid and Leaflet markers from merged data.
+ * @param {Array} coordData - Array of coordinate objects.
+ * @param {Array} dataRows - Array of data objects.
+ */
+function setupGridAndMarkers(coordData, dataRows, markerRadius) {
+  gridOptions.api.setRowData([]);
+  markerClusterGroup.clearLayers();
+  markerLayerGroup.clearLayers();
+  markers = [];
+
+  const coordList = coordData.map(r => ({ label: r.label, x: parseFloat(r.x), y: parseFloat(r.y) }));
+  const rowData = [];
+  const autocompleteSet = new Set();
+
+  dataRows.forEach(row => {
+    const coords = coordList.filter(c => c.label === row.label);
+    coords.forEach(coord => {
+      row.x = coord.x;
+      row.y = coord.y;
+
+      // --- determine color based on type ---
+      let color = 'steelblue'; // default
+      if(row.type === 'Motor') color = 'red';
+      else if(row.type === 'Valve') color = 'green';
+
+      // Create marker for each row
+      const marker = L.circleMarker([coord.y, coord.x], {
+        radius: 8, fillColor: color, color: "black", weight: 1,
+        opacity: 0.8, fillOpacity: 0.7
+      });
+
+      marker.bindTooltip(row.label);
+      let popup = `<b style="font-size:1.1em;">${row.label}</b>`;
+      let tableRows = '';
+      Object.entries(row).forEach(([k, v]) => {
+        if (!k.startsWith('_') && k !== 'label' && v != null && v !== '') {
+          tableRows += `<tr><td style="font-weight:bold;padding:2px 8px 2px 0;">${k}</td><td style="padding:2px 0;">${v}</td></tr>`;
+        }
+      });
+      if (tableRows) {
+        popup += `<table style="margin-top:6px;font-size:0.95em;">${tableRows}</table>`;
+      }
+      marker.bindPopup(popup);
+
+      marker.on('click', () => {
+        gridOptions.api.forEachNode(node => {
+          if (node.data === row) {
+            node.setSelected(true);
+            gridOptions.api.ensureNodeVisible(node);
+          }
+        });
+        map.flyTo(marker.getLatLng(), 0);
+      });
+
+      row._marker = marker;
+      rowData.push({...row}); 
+      markers.push(marker);
+      Object.values(row).forEach(v => v && autocompleteSet.add(v));
+    });
+  });
+
+  // --- Column definitions ---
+  const colDefs = Object.keys(rowData[0] || {}).filter(f => !f.startsWith('_')).map(f => {
+    if(f === 'type'){  // make sure this matches your CSV column name
+      return {
+        field: f,
+        cellRenderer: params => {
+          const color = params.data._marker?.options.fillColor || 'gray';
+          const text = params.value || '';
+          return `<span style="display:flex; align-items:center;">
+                    <span style="width:12px; height:12px; border-radius:50%; background-color:${color}; display:inline-block; margin-right:5px;"></span>
+                    ${text}
+                  </span>`;
+        }
+      };
+    } else {
+      return { field: f, hide: f === 'x' || f === 'y' };
+    }
+  });
+
+  gridOptions.api.setColumnDefs(colDefs);
+  gridOptions.api.setRowData(rowData);
+
+  // --- Build column toggle UI ---
+  const toggleContainer = document.getElementById('columnContent');
+  toggleContainer.innerHTML = '';
+  colDefs.forEach(colDef => {
+    if (colDef.field === 'x' || colDef.field === 'y') return; // skip x and y
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !colDef.hide;
+    checkbox.addEventListener('change', () => {
+      gridOptions.columnApi.setColumnVisible(colDef.field, checkbox.checked);
+    });
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(' ' + colDef.field));
+    toggleContainer.appendChild(label);
+  });
+
+  // --- Autocomplete update ---
+  const datalist = document.getElementById('autocomplete');
+  datalist.innerHTML = '';
+  autocompleteSet.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v;
+    datalist.appendChild(opt);
+  });
+
+  document.getElementById('rowCount').textContent = `Rows: ${rowData.length}`;
+  updateVisibleMarkers();
+}
+
+/**
+ * Updates which markers are visible on the map based on grid filtering.
+ */
+function updateVisibleMarkers() {
+  markerClusterGroup.clearLayers();
+  markerLayerGroup.clearLayers();
+  gridOptions.api.forEachNodeAfterFilter(node => {
+    const marker = node.data._marker;
+    if (marker) {
+      (useClustering ? markerClusterGroup : markerLayerGroup).addLayer(marker);
+    }
+  });
+  if (useClustering) {
+    map.addLayer(markerClusterGroup);
+    map.removeLayer(markerLayerGroup);
+  } else {
+    map.addLayer(markerLayerGroup);
+    map.removeLayer(markerClusterGroup);
+  }
+}
+
+/**
+ * Exports the current grid data as CSV.
+ */
+function exportToCSV() {
+  gridOptions.api.exportDataAsCsv();
+}
+
+// --- DATASET SELECTOR HANDLING ---
+document.getElementById('datasetSelect').addEventListener('change', e => {
+  const datasetId = e.target.value;
+  const ds = datasets[datasetId];
+  if (!ds) return;
+
+  // update bounds for new dataset
+  bounds = [[0, 0], [ds.height, ds.width]];
+
+  // remove previous overlay if present
+  if (window.currentOverlay) map.removeLayer(window.currentOverlay);
+
+  // add new image overlay with new bounds
+  window.currentOverlay = L.imageOverlay(ds.image, bounds).addTo(map);
+
+  // reset map view if needed
+  map.fitBounds(bounds);
+
+  // load CSVs
+  loadAndMergeCSVs(ds.coord, ds.data, ds.markerRadius);
+
+  // update URL with dataset selection (only the ID now)
+  const params = new URLSearchParams(window.location.search);
+  params.set('dataset', datasetId);
+  history.replaceState(null, '', '?' + params.toString());
+});
+
+// --- INITIAL DATASET LOAD ---
+loadAndMergeCSVs(ds.coord, ds.data, ds.markerRadius);
+
+// update URL if missing
+if (!params.has('dataset')) {
+  params.set('dataset', datasetId);
+  history.replaceState(null, '', '?' + params.toString());
+}
+
+// --- SIDEBAR RESIZER LOGIC ---
+const sidebar = document.getElementById('sidebar');
+const resizer = document.getElementById('sidebar-resizer');
+const container = document.getElementById('container');
+let isResizing = false;
+
+// Restore sidebar width and status
+const savedWidth = localStorage.getItem('sidebarWidth');
+if (savedWidth) sidebar.style.width = savedWidth;
+const savedMinimized = localStorage.getItem('sidebarMinimized');
+if (savedMinimized === '1') sidebar.classList.add('minimized');
+else sidebar.classList.remove('minimized');
+
+// Handle sidebar resizing with mouse
+resizer.addEventListener('mousedown', e => {
+  isResizing = true;
+  document.body.style.cursor = 'ew-resize';
+  document.body.classList.add('resizing');
+  e.preventDefault(); // Prevents text selection
+});
+document.addEventListener('mousemove', e => {
+  if (!isResizing) return;
+  const containerRect = container.getBoundingClientRect();
+  let newWidth = e.clientX - containerRect.left;
+  if (newWidth < 200) newWidth = 200;
+  if (newWidth > 500) newWidth = 500;
+  sidebar.style.width = newWidth + 'px';
+});
+document.addEventListener('mouseup', e => {
+  if (isResizing) {
+    isResizing = false;
+    document.body.style.cursor = '';
+    document.body.classList.remove('resizing');
+    // Save sidebar width
+    localStorage.setItem('sidebarWidth', sidebar.style.width);
+  }
+});
+
+// --- SIDEBAR TOGGLE LOGIC ---
+const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+const sidebarToggleIcon = document.getElementById('sidebarToggleIcon');
+
+function updateSidebarToggleIcon() {
+  sidebarToggleIcon.innerHTML = '&#x25B6;'; // Always use ▶
+  if (sidebar.classList.contains('minimized')) {
+    sidebarToggleIcon.classList.remove('flipped');
+  } else {
+    sidebarToggleIcon.classList.add('flipped');
+  }
+}
+
+// Initial icon state
+updateSidebarToggleIcon();
+
+sidebarToggleBtn.addEventListener('click', () => {
+  sidebar.classList.toggle('minimized');
+  // Save sidebar open/close status
+  localStorage.setItem('sidebarMinimized', sidebar.classList.contains('minimized') ? '1' : '0');
+  updateSidebarToggleIcon();
+});
+
+// --- RED PIN ICON DEFINITION FOR SEARCH RESULTS ---
+const redPinIcon = L.icon({
+  iconUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="48" viewBox="0 0 32 48"><path d="M16 0C8 0 0 6 0 16c0 10 16 32 16 32s16-22 16-32C32 6 24 0 16 0z" fill="red"/><circle cx="16" cy="16" r="7" fill="white"/></svg>',
+  iconSize: [32, 48],
+  iconAnchor: [16, 48],
+  popupAnchor: [0, -48]
+});
+
+let searchPins = [];
+let searchActive = false;
+
+/**
+ * Handles Enter key in search bar: highlights all filtered markers with red pins and zooms to fit.
+ * Prevents multiple Enter presses until pins are cleared.
+ */
+searchInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !searchActive) {
+    searchActive = true;
+
+    // Remove previous pins
+    searchPins.forEach(pin => map.removeLayer(pin));
+    searchPins = [];
+
+    // Get all visible rows
+    const nodes = [];
+    gridOptions.api.forEachNodeAfterFilterAndSort(node => nodes.push(node));
+
+    // Collect marker LatLngs and add red pins
+    const latlngs = [];
+    nodes.forEach(node => {
+      const marker = node.data._marker;
+      if (marker) {
+        const latlng = marker.getLatLng();
+        latlngs.push(latlng);
+        const pin = L.marker(latlng, { icon: redPinIcon, interactive: false });
+        pin.addTo(map);
+        searchPins.push(pin);
+      }
+    });
+
+    // Zoom to fit all pins if any
+    if (latlngs.length > 0) {
+      map.fitBounds(latlngs, { padding: [40, 40] });
+    }
+
+    // Remove pins after 5 seconds and allow Enter again
+    setTimeout(() => {
+      searchPins.forEach(pin => map.removeLayer(pin));
+      searchPins = [];
+      searchActive = false;
+    }, 5000);
+  }
+});
+
+// --- MAP PREVIEW TOOLTIP ON ROW HOVER ---
+let previewTimeout = null;
+let previewTooltip = document.getElementById('previewTooltip');
+let previewImg = null;
+let previewRect = null;
+let previewMask = null; // <-- Add this for the SVG mask
+
+function showPreviewTooltip(x, y, event) {
+  // Preview settings
+  const previewWidth = 180;
+  const previewHeight = 120;
+  const cropRadius = 80; // pixels radius from center
+
+  // Find the image overlay element
+  const imgLayer = document.querySelector('.leaflet-image-layer');
+  if (!imgLayer) return;
+
+  // Create a canvas to crop the image
+  const canvas = document.createElement('canvas');
+  canvas.width = previewWidth;
+  canvas.height = previewHeight;
+  const ctx = canvas.getContext('2d');
+
+  // Get the bounds of the overlay image
+  const imgBounds = window.currentOverlay.getBounds();
+  const img = imgLayer;
+
+  // Calculate the pixel position of (x, y) in the image
+  const imgWidth = img.naturalWidth;
+  const imgHeight = img.naturalHeight;
+  const xRatio = (x - imgBounds.getWest()) / (imgBounds.getEast() - imgBounds.getWest());
+  const yRatio = (y - imgBounds.getNorth()) / (imgBounds.getSouth() - imgBounds.getNorth());
+  const px = imgWidth * xRatio;
+  const py = imgHeight * yRatio;
+
+  // Draw the cropped area onto the canvas
+  ctx.drawImage(
+    img,
+    px - cropRadius, py - cropRadius,
+    previewWidth, previewHeight,
+    0, 0,
+    previewWidth, previewHeight
+  );
+
+  // Set the tooltip image
+  if (!previewImg) {
+    previewImg = document.createElement('img');
+    previewTooltip.appendChild(previewImg);
+  }
+  previewImg.src = canvas.toDataURL();
+
+  // Position the tooltip near the mouse
+  previewTooltip.style.left = (event.clientX + 20) + 'px';
+  previewTooltip.style.top = (event.clientY - 20) + 'px';
+  previewTooltip.style.display = 'block';
+
+  // --- Draw rectangle on the map overlay ---
+  if (previewRect) {
+    map.removeLayer(previewRect);
+    previewRect = null;
+  }
+  // Calculate bounds for the rectangle (in map coordinates)
+  const xMin = x - (cropRadius * (imgBounds.getEast() - imgBounds.getWest()) / imgWidth);
+  const xMax = x + (cropRadius * (imgBounds.getEast() - imgBounds.getWest()) / imgWidth);
+  const yMin = y - (cropRadius * (imgBounds.getSouth() - imgBounds.getNorth()) / imgHeight);
+  const yMax = y + (cropRadius * (imgBounds.getSouth() - imgBounds.getNorth()) / imgHeight);
+
+  previewRect = L.rectangle([[yMin, xMin], [yMax, xMax]], {
+    color: "#e74c3c",
+    weight: 2,
+    fill: false,
+    dashArray: "6,6"
+  }).addTo(map);
+
+  // --- Spotlight Mask Overlay ---
+  if (previewMask) {
+    previewMask.remove();
+    previewMask = null;
+  }
+  // Get map container and size
+  const mapContainer = map.getContainer();
+  const mapRect = mapContainer.getBoundingClientRect();
+  const topLeft = map.latLngToContainerPoint([yMin, xMin]);
+  const bottomRight = map.latLngToContainerPoint([yMax, xMax]);
+
+  // SVG overlay
+  previewMask = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  previewMask.setAttribute("width", mapRect.width);
+  previewMask.setAttribute("height", mapRect.height);
+  previewMask.style.position = "absolute";
+  previewMask.style.left = "0";
+  previewMask.style.top = "0";
+  previewMask.style.pointerEvents = "none";
+  previewMask.style.zIndex = "499"; // below Leaflet popups/tooltips
+
+  // Draw a dark rect with a transparent hole
+  const maskId = "preview-spotlight-mask";
+  previewMask.innerHTML = `
+    <defs>
+      <mask id="${maskId}">
+        <rect x="0" y="0" width="${mapRect.width}" height="${mapRect.height}" fill="white"/>
+        <rect x="${topLeft.x}" y="${topLeft.y}" width="${bottomRight.x - topLeft.x}" height="${bottomRight.y - topLeft.y}" fill="black"/>
+      </mask>
+    </defs>
+    <rect x="0" y="0" width="${mapRect.width}" height="${mapRect.height}" fill="rgba(0,0,0,0.45)" mask="url(#${maskId})"/>
+  `;
+  mapContainer.appendChild(previewMask);
+}
+
+function hidePreviewTooltip() {
+  previewTooltip.style.display = 'none';
+  if (previewImg) previewImg.src = '';
+  if (previewRect) {
+    map.removeLayer(previewRect);
+    previewRect = null;
+  }
+  if (previewMask) {
+    previewMask.remove();
+    previewMask = null;
+  }
+}
+
+// Add ag-Grid row hover listeners
+document.querySelector('#myGrid').addEventListener('mouseover', function(e) {
+  const rowEl = e.target.closest('.ag-row');
+  if (!rowEl) return;
+  const rowIndex = rowEl.getAttribute('row-index');
+  if (rowIndex == null) return;
+
+  // Get row data from grid
+  let rowData = null;
+  gridOptions.api.forEachNode(node => {
+    if (node.rowIndex == rowIndex) rowData = node.data;
+  });
+  if (!rowData || typeof rowData.x === 'undefined' || typeof rowData.y === 'undefined') return;
+
+  // Start timeout for delayed preview
+  previewTimeout = setTimeout(() => {
+    showPreviewTooltip(rowData.x, rowData.y, e);
+  }, 800); // 800ms delay
+});
+
+document.querySelector('#myGrid').addEventListener('mousemove', function(e) {
+  if (previewTooltip.style.display === 'block') {
+    previewTooltip.style.left = (e.clientX + 20) + 'px';
+    previewTooltip.style.top = (e.clientY - 20) + 'px';
+  }
+});
+
+document.querySelector('#myGrid').addEventListener('mouseout', function(e) {
+  clearTimeout(previewTimeout);
+  hidePreviewTooltip();
+});
+
+
+</script>
+</body>
+</html>
